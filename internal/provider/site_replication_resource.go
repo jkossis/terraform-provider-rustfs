@@ -32,8 +32,8 @@ const siteReplicationResourceID = "site-replication"
 type siteReplicationResourceModel struct {
 	ID                      types.String `tfsdk:"id"`
 	ReplicateILMExpiry      types.Bool   `tfsdk:"replicate_ilm_expiry"`
-	Peer                    types.List   `tfsdk:"peer"`
-	Site                    types.List   `tfsdk:"site"`
+	Peers                   types.List   `tfsdk:"peers"`
+	Sites                   types.List   `tfsdk:"sites"`
 	Enabled                 types.Bool   `tfsdk:"enabled"`
 	ServiceAccountAccessKey types.String `tfsdk:"service_account_access_key"`
 	APIVersion              types.String `tfsdk:"api_version"`
@@ -45,7 +45,7 @@ func (r *SiteReplicationResource) Metadata(ctx context.Context, req resource.Met
 
 func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages RustFS site replication topology for the configured local RustFS site.",
+		MarkdownDescription: "Manages RustFS site replication topology. Configure `peers` with the desired RustFS peer sites; read `sites` for the topology RustFS reports after configuration.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -60,8 +60,8 @@ func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.Schem
 				Computed:            true,
 				Default:             booldefault.StaticBool(false),
 			},
-			"peer":                       siteReplicationPeerResourceAttribute(),
-			"site":                       siteReplicationSiteResourceAttribute(),
+			"peers":                      siteReplicationPeersResourceAttribute(),
+			"sites":                      siteReplicationSitesResourceAttribute(),
 			"enabled":                    schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether RustFS reports site replication as enabled."},
 			"service_account_access_key": schema.StringAttribute{Computed: true, MarkdownDescription: "RustFS site replication service account access key."},
 			"api_version":                schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."},
@@ -165,7 +165,7 @@ func (r *SiteReplicationResource) configureReplication(
 	addAttributeError func(path.Path, string, string),
 	addError func(string, string),
 ) bool {
-	configuredPeers, diags := peerSitesFromList(ctx, data.Peer)
+	configuredPeers, diags := peerSitesFromList(ctx, data.Peers)
 	if diags.HasError() {
 		for _, diagnostic := range diags {
 			addError(diagnostic.Summary(), diagnostic.Detail())
@@ -174,7 +174,7 @@ func (r *SiteReplicationResource) configureReplication(
 	}
 
 	if len(configuredPeers) == 0 {
-		addAttributeError(path.Root("peer"), "Missing Site Replication Peers", "Configure at least one remote peer site.")
+		addAttributeError(path.Root("peers"), "Missing Site Replication Peers", "Configure at least one desired peer site.")
 		return false
 	}
 
@@ -190,9 +190,9 @@ func (r *SiteReplicationResource) configureReplication(
 
 	if len(peers) == 0 {
 		addAttributeError(
-			path.Root("peer"),
+			path.Root("peers"),
 			"Missing Remote Site Replication Peers",
-			"After filtering the current local site, no remote peer sites remain. Configure at least one additional site.",
+			"After filtering the current backend site, no remote peer sites remain. Configure at least one additional site.",
 		)
 		return false
 	}
@@ -238,7 +238,7 @@ func (r *SiteReplicationResource) peersWithCredentials(
 		for i, peer := range peers {
 			if peer.AccessKey == "" || peer.SecretKey == "" {
 				addAttributeError(
-					path.Root("peer").AtListIndex(i),
+					path.Root("peers").AtListIndex(i),
 					"Missing Site Replication Peer Credentials",
 					"Configure both access_key and secret_key for this peer.",
 				)
@@ -255,7 +255,7 @@ func (r *SiteReplicationResource) peersWithCredentials(
 		missingSecretKey := peer.SecretKey == ""
 		if missingAccessKey != missingSecretKey {
 			addAttributeError(
-				path.Root("peer").AtListIndex(i),
+				path.Root("peers").AtListIndex(i),
 				"Incomplete Site Replication Peer Credentials",
 				"Configure both access_key and secret_key for this peer, or omit both to use the provider credentials.",
 			)
@@ -346,7 +346,7 @@ func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplica
 	data.Enabled = types.BoolValue(info.Enabled)
 	data.ServiceAccountAccessKey = nullableString(info.ServiceAccountAccessKey)
 	data.APIVersion = nullableString(info.APIVersion)
-	data.Site = sites
+	data.Sites = sites
 
 	return true
 }

@@ -30,7 +30,7 @@ Configuration can also be supplied with environment variables:
 resource "rustfs_site_replication" "example" {
   replicate_ilm_expiry = true
 
-  peer = [
+  peers = [
     {
       name       = "site-a"
       endpoint   = "https://site-a.example.com:9000"
@@ -43,7 +43,7 @@ resource "rustfs_site_replication" "example" {
 }
 ```
 
-The `peer` list can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint and omits that site from the RustFS add request.
+The `peers` list is the desired set of RustFS peer sites for replication. It can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint and omits that site from the RustFS add request.
 
 By default, Terraform uses the provider `access_key` and `secret_key` for each peer. To use different credentials for a specific peer, set both `access_key` and `secret_key` on that peer.
 

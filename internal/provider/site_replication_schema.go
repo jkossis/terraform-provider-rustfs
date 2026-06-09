@@ -9,9 +9,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-func siteReplicationPeerResourceAttribute() resourceSchema.Attribute {
+func siteReplicationPeersResourceAttribute() resourceSchema.Attribute {
 	return resourceSchema.ListNestedAttribute{
-		MarkdownDescription: "RustFS sites to configure for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS.",
+		MarkdownDescription: "Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS.",
 		Required:            true,
 		NestedObject: resourceSchema.NestedAttributeObject{
 			Attributes: map[string]resourceSchema.Attribute{
@@ -38,9 +38,9 @@ func siteReplicationPeerResourceAttribute() resourceSchema.Attribute {
 	}
 }
 
-func siteReplicationSiteResourceAttribute() resourceSchema.Attribute {
+func siteReplicationSitesResourceAttribute() resourceSchema.Attribute {
 	return resourceSchema.ListNestedAttribute{
-		MarkdownDescription: "Sites currently reported by RustFS site replication.",
+		MarkdownDescription: "RustFS site replication topology currently reported by RustFS.",
 		Computed:            true,
 		NestedObject: resourceSchema.NestedAttributeObject{
 			Attributes: siteReplicationSiteResourceAttributes(),
@@ -48,9 +48,9 @@ func siteReplicationSiteResourceAttribute() resourceSchema.Attribute {
 	}
 }
 
-func siteReplicationSiteDataSourceAttribute() datasourceSchema.Attribute {
+func siteReplicationSitesDataSourceAttribute() datasourceSchema.Attribute {
 	return datasourceSchema.ListNestedAttribute{
-		MarkdownDescription: "Sites currently reported by RustFS site replication.",
+		MarkdownDescription: "RustFS site replication topology currently reported by RustFS.",
 		Computed:            true,
 		NestedObject: datasourceSchema.NestedAttributeObject{
 			Attributes: siteReplicationSiteDataSourceAttributes(),

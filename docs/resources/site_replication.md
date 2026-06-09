@@ -3,12 +3,12 @@
 page_title: "rustfs_site_replication Resource - rustfs"
 subcategory: ""
 description: |-
-  Manages RustFS site replication topology for the configured local RustFS site.
+  Manages RustFS site replication topology. Configure peers with the desired RustFS peer sites; read sites for the topology RustFS reports after configuration.
 ---
 
 # rustfs_site_replication (Resource)
 
-Manages RustFS site replication topology for the configured local RustFS site.
+Manages RustFS site replication topology. Configure `peers` with the desired RustFS peer sites; read `sites` for the topology RustFS reports after configuration.
 
 ## Example Usage
 
@@ -16,7 +16,7 @@ Manages RustFS site replication topology for the configured local RustFS site.
 resource "rustfs_site_replication" "example" {
   replicate_ilm_expiry = true
 
-  peer = [
+  peers = [
     {
       name     = "site-a"
       endpoint = "https://site-a.example.com:9000"
@@ -34,7 +34,7 @@ resource "rustfs_site_replication" "example" {
 
 ### Required
 
-- `peer` (Attributes List) RustFS sites to configure for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS. (see [below for nested schema](#nestedatt--peer))
+- `peers` (Attributes List) Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS. (see [below for nested schema](#nestedatt--peers))
 
 ### Optional
 
@@ -46,10 +46,10 @@ resource "rustfs_site_replication" "example" {
 - `enabled` (Boolean) Whether RustFS reports site replication as enabled.
 - `id` (String) Resource identifier. Site replication is global to the configured RustFS deployment, so this value is always `site-replication` and is the import ID.
 - `service_account_access_key` (String) RustFS site replication service account access key.
-- `site` (Attributes List) Sites currently reported by RustFS site replication. (see [below for nested schema](#nestedatt--site))
+- `sites` (Attributes List) RustFS site replication topology currently reported by RustFS. (see [below for nested schema](#nestedatt--sites))
 
-<a id="nestedatt--peer"></a>
-### Nested Schema for `peer`
+<a id="nestedatt--peers"></a>
+### Nested Schema for `peers`
 
 Required:
 
@@ -62,8 +62,8 @@ Optional:
 - `secret_key` (String, Sensitive) Administrator secret key for the site, used by Terraform to identify the current backend site and by RustFS while joining peers. Omit both `access_key` and `secret_key` to use the provider credentials for this peer.
 
 
-<a id="nestedatt--site"></a>
-### Nested Schema for `site`
+<a id="nestedatt--sites"></a>
+### Nested Schema for `sites`
 
 Read-Only:
 

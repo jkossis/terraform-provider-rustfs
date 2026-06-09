@@ -26,7 +26,7 @@ type siteReplicationInfoDataSourceModel struct {
 	ID                      types.String `tfsdk:"id"`
 	Enabled                 types.Bool   `tfsdk:"enabled"`
 	Name                    types.String `tfsdk:"name"`
-	Site                    types.List   `tfsdk:"site"`
+	Sites                   types.List   `tfsdk:"sites"`
 	ServiceAccountAccessKey types.String `tfsdk:"service_account_access_key"`
 	APIVersion              types.String `tfsdk:"api_version"`
 	RawJSON                 types.String `tfsdk:"raw_json"`
@@ -43,7 +43,7 @@ func (d *SiteReplicationInfoDataSource) Schema(ctx context.Context, req datasour
 			"id":                         schema.StringAttribute{Computed: true, MarkdownDescription: "Data source identifier."},
 			"enabled":                    schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether RustFS reports site replication as enabled."},
 			"name":                       schema.StringAttribute{Computed: true, MarkdownDescription: "Local site name reported by RustFS."},
-			"site":                       siteReplicationSiteDataSourceAttribute(),
+			"sites":                      siteReplicationSitesDataSourceAttribute(),
 			"service_account_access_key": schema.StringAttribute{Computed: true, MarkdownDescription: "RustFS site replication service account access key."},
 			"api_version":                schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."},
 			"raw_json":                   schema.StringAttribute{Computed: true, MarkdownDescription: "Raw JSON response body returned by the RustFS admin API."},
@@ -91,7 +91,7 @@ func (d *SiteReplicationInfoDataSource) Read(ctx context.Context, req datasource
 		ID:                      types.StringValue("site-replication-info"),
 		Enabled:                 types.BoolValue(info.Enabled),
 		Name:                    nullableString(info.Name),
-		Site:                    sites,
+		Sites:                   sites,
 		ServiceAccountAccessKey: nullableString(info.ServiceAccountAccessKey),
 		APIVersion:              nullableString(info.APIVersion),
 		RawJSON:                 types.StringValue(rawJSON),

@@ -127,7 +127,7 @@ provider "rustfs" {}
 resource "rustfs_site_replication" "test" {
   replicate_ilm_expiry = %[1]t
 
-  peer = [
+  peers = [
 %[2]s
   ]
 }

@@ -41,7 +41,7 @@ type siteReplicationStatusDataSourceModel struct {
 	MaxGroups         types.Int64  `tfsdk:"max_groups"`
 	MaxPolicies       types.Int64  `tfsdk:"max_policies"`
 	MaxILMExpiryRules types.Int64  `tfsdk:"max_ilm_expiry_rules"`
-	Site              types.List   `tfsdk:"site"`
+	Sites             types.List   `tfsdk:"sites"`
 	APIVersion        types.String `tfsdk:"api_version"`
 	RawJSON           types.String `tfsdk:"raw_json"`
 }
@@ -58,7 +58,7 @@ func (d *SiteReplicationStatusDataSource) Schema(ctx context.Context, req dataso
 	attrs["max_groups"] = schema.Int64Attribute{Computed: true, MarkdownDescription: "Maximum group count reported across sites."}
 	attrs["max_policies"] = schema.Int64Attribute{Computed: true, MarkdownDescription: "Maximum policy count reported across sites."}
 	attrs["max_ilm_expiry_rules"] = schema.Int64Attribute{Computed: true, MarkdownDescription: "Maximum ILM expiry rule count reported across sites."}
-	attrs["site"] = siteReplicationSiteDataSourceAttribute()
+	attrs["sites"] = siteReplicationSitesDataSourceAttribute()
 	attrs["api_version"] = schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."}
 
 	resp.Schema = schema.Schema{
@@ -122,7 +122,7 @@ func (d *SiteReplicationStatusDataSource) Read(ctx context.Context, req datasour
 	data.MaxGroups = types.Int64Value(int64(info.MaxGroups))
 	data.MaxPolicies = types.Int64Value(int64(info.MaxPolicies))
 	data.MaxILMExpiryRules = types.Int64Value(int64(info.MaxILMExpiryRules))
-	data.Site = sites
+	data.Sites = sites
 	data.APIVersion = nullableString(info.APIVersion)
 	data.RawJSON = types.StringValue(rawJSON)
 

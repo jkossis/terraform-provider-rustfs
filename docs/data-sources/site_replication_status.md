@@ -46,10 +46,10 @@ data "rustfs_site_replication_status" "example" {
 - `max_policies` (Number) Maximum policy count reported across sites.
 - `max_users` (Number) Maximum user count reported across sites.
 - `raw_json` (String) Raw JSON response body returned by the RustFS admin API.
-- `site` (Attributes List) Sites currently reported by RustFS site replication. (see [below for nested schema](#nestedatt--site))
+- `sites` (Attributes List) RustFS site replication topology currently reported by RustFS. (see [below for nested schema](#nestedatt--sites))
 
-<a id="nestedatt--site"></a>
-### Nested Schema for `site`
+<a id="nestedatt--sites"></a>
+### Nested Schema for `sites`
 
 Read-Only:
 

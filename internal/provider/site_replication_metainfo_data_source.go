@@ -38,7 +38,7 @@ type siteReplicationMetaInfoDataSourceModel struct {
 	Enabled        types.Bool   `tfsdk:"enabled"`
 	Name           types.String `tfsdk:"name"`
 	DeploymentID   types.String `tfsdk:"deployment_id"`
-	Site           types.List   `tfsdk:"site"`
+	Sites          types.List   `tfsdk:"sites"`
 	APIVersion     types.String `tfsdk:"api_version"`
 	RawJSON        types.String `tfsdk:"raw_json"`
 }
@@ -52,7 +52,7 @@ func (d *SiteReplicationMetaInfoDataSource) Schema(ctx context.Context, req data
 	attrs["enabled"] = schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether RustFS reports site replication as enabled."}
 	attrs["name"] = schema.StringAttribute{Computed: true, MarkdownDescription: "Local site name reported by RustFS."}
 	attrs["deployment_id"] = schema.StringAttribute{Computed: true, MarkdownDescription: "Local deployment ID reported by RustFS."}
-	attrs["site"] = siteReplicationSiteDataSourceAttribute()
+	attrs["sites"] = siteReplicationSitesDataSourceAttribute()
 	attrs["api_version"] = schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."}
 
 	resp.Schema = schema.Schema{
@@ -113,7 +113,7 @@ func (d *SiteReplicationMetaInfoDataSource) Read(ctx context.Context, req dataso
 	data.Enabled = types.BoolValue(info.Enabled)
 	data.Name = nullableString(info.Name)
 	data.DeploymentID = nullableString(info.DeploymentID)
-	data.Site = sites
+	data.Sites = sites
 	data.APIVersion = nullableString(info.APIVersion)
 	data.RawJSON = types.StringValue(rawJSON)
 

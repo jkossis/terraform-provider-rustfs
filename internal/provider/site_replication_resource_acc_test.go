@@ -40,7 +40,7 @@ func TestAccSiteReplicationResource_basic(t *testing.T) {
 				ImportState:             true,
 				ImportStateId:           siteReplicationResourceID,
 				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"peer", "replicate_ilm_expiry"},
+				ImportStateVerifyIgnore: []string{"peers", "replicate_ilm_expiry"},
 			},
 		},
 	})
@@ -53,10 +53,10 @@ func testAccSiteReplicationPeerChecks() []resource.TestCheckFunc {
 	}
 
 	checks := []resource.TestCheckFunc{
-		resource.TestCheckResourceAttr("rustfs_site_replication.test", "peer.#", strconv.Itoa(len(peers))),
+		resource.TestCheckResourceAttr("rustfs_site_replication.test", "peers.#", strconv.Itoa(len(peers))),
 	}
 	for i, peer := range peers {
-		prefix := "peer." + strconv.Itoa(i)
+		prefix := "peers." + strconv.Itoa(i)
 		checks = append(checks,
 			resource.TestCheckResourceAttr("rustfs_site_replication.test", prefix+".name", peer.Name),
 			resource.TestCheckResourceAttr("rustfs_site_replication.test", prefix+".endpoint", peer.Endpoint),

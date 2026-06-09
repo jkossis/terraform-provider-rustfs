@@ -72,7 +72,7 @@ func TestSiteReplicationConfigureDisablesStickyILMExpiry(t *testing.T) {
 	resource := &SiteReplicationResource{client: client}
 	data := siteReplicationResourceModel{
 		ReplicateILMExpiry: types.BoolValue(false),
-		Peer:               testPeerListValue(t),
+		Peers:              testPeerListValue(t),
 	}
 
 	ok := resource.configureReplication(context.Background(), &data, failAttributeError(t), failError(t))
@@ -100,7 +100,7 @@ func TestSiteReplicationConfigureEnablesILMExpiry(t *testing.T) {
 	resource := &SiteReplicationResource{client: client}
 	data := siteReplicationResourceModel{
 		ReplicateILMExpiry: types.BoolValue(true),
-		Peer:               testPeerListValue(t),
+		Peers:              testPeerListValue(t),
 	}
 
 	ok := resource.configureReplication(context.Background(), &data, failAttributeError(t), failError(t))
@@ -127,7 +127,7 @@ func TestSiteReplicationDefaultsPeerCredentialsFromProvider(t *testing.T) {
 	resource := &SiteReplicationResource{client: client}
 	data := siteReplicationResourceModel{
 		ReplicateILMExpiry: types.BoolValue(true),
-		Peer:               testPeerListValueWithCredentials(t, types.StringNull(), types.StringNull()),
+		Peers:              testPeerListValueWithCredentials(t, types.StringNull(), types.StringNull()),
 	}
 
 	ok := resource.configureReplication(context.Background(), &data, failAttributeError(t), failError(t))
@@ -158,7 +158,7 @@ func TestSiteReplicationRejectsPartialPeerCredentials(t *testing.T) {
 	resource := &SiteReplicationResource{client: client}
 	data := siteReplicationResourceModel{
 		ReplicateILMExpiry: types.BoolValue(true),
-		Peer:               testPeerListValueWithCredentials(t, types.StringValue("peer-access"), types.StringNull()),
+		Peers:              testPeerListValueWithCredentials(t, types.StringValue("peer-access"), types.StringNull()),
 	}
 	var errorSummary string
 

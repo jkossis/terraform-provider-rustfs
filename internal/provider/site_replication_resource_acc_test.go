@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -17,12 +18,12 @@ func TestAccSiteReplicationResource_basic(t *testing.T) {
 			{
 				Config: testAccSiteReplicationResourceConfig(false),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("rustfs_site_replication.test", "id", siteReplicationResourceID),
-					resource.TestCheckResourceAttr("rustfs_site_replication.test", "replicate_ilm_expiry", "false"),
-					resource.TestCheckResourceAttr("rustfs_site_replication.test", "enabled", "true"),
-					resource.TestCheckResourceAttr("rustfs_site_replication.test", "peer.0.name", envValue(envSiteReplicationPeerName)),
-					resource.TestCheckResourceAttr("rustfs_site_replication.test", "peer.0.endpoint", envValue(envSiteReplicationPeerEndpoint)),
-					resource.TestCheckResourceAttrSet("rustfs_site_replication.test", "service_account_access_key"),
+					append([]resource.TestCheckFunc{
+						resource.TestCheckResourceAttr("rustfs_site_replication.test", "id", siteReplicationResourceID),
+						resource.TestCheckResourceAttr("rustfs_site_replication.test", "replicate_ilm_expiry", "false"),
+						resource.TestCheckResourceAttr("rustfs_site_replication.test", "enabled", "true"),
+						resource.TestCheckResourceAttrSet("rustfs_site_replication.test", "service_account_access_key"),
+					}, testAccSiteReplicationPeerChecks()...)...,
 				),
 			},
 			{
@@ -43,4 +44,24 @@ func TestAccSiteReplicationResource_basic(t *testing.T) {
 			},
 		},
 	})
+}
+
+func testAccSiteReplicationPeerChecks() []resource.TestCheckFunc {
+	peers, err := testAccSiteReplicationPeersFromEnv()
+	if err != nil {
+		return nil
+	}
+
+	checks := []resource.TestCheckFunc{
+		resource.TestCheckResourceAttr("rustfs_site_replication.test", "peer.#", strconv.Itoa(len(peers))),
+	}
+	for i, peer := range peers {
+		prefix := "peer." + strconv.Itoa(i)
+		checks = append(checks,
+			resource.TestCheckResourceAttr("rustfs_site_replication.test", prefix+".name", peer.Name),
+			resource.TestCheckResourceAttr("rustfs_site_replication.test", prefix+".endpoint", peer.Endpoint),
+		)
+	}
+
+	return checks
 }

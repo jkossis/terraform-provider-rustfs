@@ -165,7 +165,7 @@ func (r *SiteReplicationResource) configureReplication(
 	addAttributeError func(path.Path, string, string),
 	addError func(string, string),
 ) bool {
-	peers, diags := peerSitesFromList(ctx, data.Peer)
+	configuredPeers, diags := peerSitesFromList(ctx, data.Peer)
 	if diags.HasError() {
 		for _, diagnostic := range diags {
 			addError(diagnostic.Summary(), diagnostic.Detail())
@@ -173,8 +173,27 @@ func (r *SiteReplicationResource) configureReplication(
 		return false
 	}
 
-	if len(peers) == 0 {
+	if len(configuredPeers) == 0 {
 		addAttributeError(path.Root("peer"), "Missing Site Replication Peers", "Configure at least one remote peer site.")
+		return false
+	}
+
+	configuredPeers, ok := r.peersWithCredentials(configuredPeers, addAttributeError, addError)
+	if !ok {
+		return false
+	}
+
+	peers, ok := r.peersForAdd(ctx, configuredPeers, addError)
+	if !ok {
+		return false
+	}
+
+	if len(peers) == 0 {
+		addAttributeError(
+			path.Root("peer"),
+			"Missing Remote Site Replication Peers",
+			"After filtering the current local site, no remote peer sites remain. Configure at least one additional site.",
+		)
 		return false
 	}
 
@@ -207,6 +226,101 @@ func (r *SiteReplicationResource) configureReplication(
 	}
 
 	return true
+}
+
+func (r *SiteReplicationResource) peersWithCredentials(
+	peers []peerSite,
+	addAttributeError func(path.Path, string, string),
+	addError func(string, string),
+) ([]peerSite, bool) {
+	credentialProvider, ok := r.client.(siteReplicationPeerCredentialProvider)
+	if !ok {
+		for i, peer := range peers {
+			if peer.AccessKey == "" || peer.SecretKey == "" {
+				addAttributeError(
+					path.Root("peer").AtListIndex(i),
+					"Missing Site Replication Peer Credentials",
+					"Configure both access_key and secret_key for this peer.",
+				)
+				return nil, false
+			}
+		}
+
+		return peers, true
+	}
+
+	resolvedPeers := make([]peerSite, 0, len(peers))
+	for i, peer := range peers {
+		missingAccessKey := peer.AccessKey == ""
+		missingSecretKey := peer.SecretKey == ""
+		if missingAccessKey != missingSecretKey {
+			addAttributeError(
+				path.Root("peer").AtListIndex(i),
+				"Incomplete Site Replication Peer Credentials",
+				"Configure both access_key and secret_key for this peer, or omit both to use the provider credentials.",
+			)
+			return nil, false
+		}
+
+		if missingAccessKey {
+			defaultAccessKey, defaultSecretKey := credentialProvider.SiteReplicationPeerCredentials()
+			if defaultAccessKey == "" || defaultSecretKey == "" {
+				addError("Missing RustFS Peer Credentials", "The provider credentials are unavailable, so peer credentials cannot be defaulted.")
+				return nil, false
+			}
+
+			peer.AccessKey = defaultAccessKey
+			peer.SecretKey = defaultSecretKey
+		}
+
+		resolvedPeers = append(resolvedPeers, peer)
+	}
+
+	return resolvedPeers, true
+}
+
+func (r *SiteReplicationResource) peersForAdd(ctx context.Context, peers []peerSite, addError func(string, string)) ([]peerSite, bool) {
+	resolver, ok := r.client.(peerDeploymentIDResolver)
+	if !ok {
+		return peers, true
+	}
+
+	localInfo, err := r.client.SRMetaInfo(ctx, srStatusOptions{})
+	if err != nil {
+		addError("Unable to Identify Local Site", fmt.Sprintf("RustFS returned an error while identifying the local site behind the provider endpoint: %s", err))
+		return nil, false
+	}
+
+	if localInfo.DeploymentID == "" {
+		return peers, true
+	}
+
+	filtered := make([]peerSite, 0, len(peers))
+	for _, peer := range peers {
+		peerDeploymentID, err := resolver.PeerDeploymentID(ctx, peer)
+		if err != nil {
+			addError(
+				"Unable to Identify Site Replication Peer",
+				fmt.Sprintf("RustFS returned an error while identifying peer %q at %q: %s", peer.Name, peer.Endpoint, err),
+			)
+			return nil, false
+		}
+		if peerDeploymentID == "" {
+			addError(
+				"Unable to Identify Site Replication Peer",
+				fmt.Sprintf("RustFS did not return a deployment ID for peer %q at %q.", peer.Name, peer.Endpoint),
+			)
+			return nil, false
+		}
+
+		if peerDeploymentID == localInfo.DeploymentID {
+			continue
+		}
+
+		filtered = append(filtered, peer)
+	}
+
+	return filtered, true
 }
 
 func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplicationResourceModel, removeWhenDisabled bool, addError func(string, string)) bool {

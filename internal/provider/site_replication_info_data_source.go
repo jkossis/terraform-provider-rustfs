@@ -46,7 +46,7 @@ func (d *SiteReplicationInfoDataSource) Schema(ctx context.Context, req datasour
 			"site":                       siteReplicationSiteDataSourceAttribute(),
 			"service_account_access_key": schema.StringAttribute{Computed: true, MarkdownDescription: "RustFS site replication service account access key."},
 			"api_version":                schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."},
-			"raw_json":                   schema.StringAttribute{Computed: true, MarkdownDescription: "JSON response body re-serialized from the RustFS admin client model."},
+			"raw_json":                   schema.StringAttribute{Computed: true, MarkdownDescription: "Raw JSON response body returned by the RustFS admin API."},
 		},
 	}
 }

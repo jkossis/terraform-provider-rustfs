@@ -25,7 +25,7 @@ data "rustfs_site_replication_info" "example" {}
 - `enabled` (Boolean) Whether RustFS reports site replication as enabled.
 - `id` (String) Data source identifier.
 - `name` (String) Local site name reported by RustFS.
-- `raw_json` (String) JSON response body re-serialized from the RustFS admin client model.
+- `raw_json` (String) Raw JSON response body returned by the RustFS admin API.
 - `service_account_access_key` (String) RustFS site replication service account access key.
 - `site` (Attributes List) Sites currently reported by RustFS site replication. (see [below for nested schema](#nestedatt--site))
 

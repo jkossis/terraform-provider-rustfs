@@ -18,10 +18,12 @@ resource "rustfs_site_replication" "example" {
 
   peer = [
     {
-      name       = "site-b"
-      endpoint   = "https://site-b.example.com:9000"
-      access_key = var.site_b_access_key
-      secret_key = var.site_b_secret_key
+      name     = "site-a"
+      endpoint = "https://site-a.example.com:9000"
+    },
+    {
+      name     = "site-b"
+      endpoint = "https://site-b.example.com:9000"
     },
   ]
 }
@@ -32,7 +34,7 @@ resource "rustfs_site_replication" "example" {
 
 ### Required
 
-- `peer` (Attributes List) Remote RustFS sites to configure for site replication. The local site is inferred by RustFS from the request endpoint. (see [below for nested schema](#nestedatt--peer))
+- `peer` (Attributes List) RustFS sites to configure for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS. (see [below for nested schema](#nestedatt--peer))
 
 ### Optional
 
@@ -51,10 +53,13 @@ resource "rustfs_site_replication" "example" {
 
 Required:
 
-- `access_key` (String, Sensitive) Administrator access key for the remote site, used by RustFS while joining peers.
-- `endpoint` (String) Remote RustFS site endpoint, including scheme and port.
-- `name` (String) Remote site name.
-- `secret_key` (String, Sensitive) Administrator secret key for the remote site, used by RustFS while joining peers.
+- `endpoint` (String) Canonical RustFS site endpoint, including scheme and port.
+- `name` (String) Site name.
+
+Optional:
+
+- `access_key` (String, Sensitive) Administrator access key for the site, used by Terraform to identify the current backend site and by RustFS while joining peers. Omit both `access_key` and `secret_key` to use the provider credentials for this peer.
+- `secret_key` (String, Sensitive) Administrator secret key for the site, used by Terraform to identify the current backend site and by RustFS while joining peers. Omit both `access_key` and `secret_key` to use the provider credentials for this peer.
 
 
 <a id="nestedatt--site"></a>

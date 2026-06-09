@@ -3,10 +3,12 @@ resource "rustfs_site_replication" "example" {
 
   peer = [
     {
-      name       = "site-b"
-      endpoint   = "https://site-b.example.com:9000"
-      access_key = var.site_b_access_key
-      secret_key = var.site_b_secret_key
+      name     = "site-a"
+      endpoint = "https://site-a.example.com:9000"
+    },
+    {
+      name     = "site-b"
+      endpoint = "https://site-b.example.com:9000"
     },
   ]
 }

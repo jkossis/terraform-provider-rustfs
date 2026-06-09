@@ -11,26 +11,26 @@ import (
 
 func siteReplicationPeerResourceAttribute() resourceSchema.Attribute {
 	return resourceSchema.ListNestedAttribute{
-		MarkdownDescription: "Remote RustFS sites to configure for site replication. The local site is inferred by RustFS from the request endpoint.",
+		MarkdownDescription: "RustFS sites to configure for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS.",
 		Required:            true,
 		NestedObject: resourceSchema.NestedAttributeObject{
 			Attributes: map[string]resourceSchema.Attribute{
 				"name": resourceSchema.StringAttribute{
-					MarkdownDescription: "Remote site name.",
+					MarkdownDescription: "Site name.",
 					Required:            true,
 				},
 				"endpoint": resourceSchema.StringAttribute{
-					MarkdownDescription: "Remote RustFS site endpoint, including scheme and port.",
+					MarkdownDescription: "Canonical RustFS site endpoint, including scheme and port.",
 					Required:            true,
 				},
 				"access_key": resourceSchema.StringAttribute{
-					MarkdownDescription: "Administrator access key for the remote site, used by RustFS while joining peers.",
-					Required:            true,
+					MarkdownDescription: "Administrator access key for the site, used by Terraform to identify the current backend site and by RustFS while joining peers. Omit both `access_key` and `secret_key` to use the provider credentials for this peer.",
+					Optional:            true,
 					Sensitive:           true,
 				},
 				"secret_key": resourceSchema.StringAttribute{
-					MarkdownDescription: "Administrator secret key for the remote site, used by RustFS while joining peers.",
-					Required:            true,
+					MarkdownDescription: "Administrator secret key for the site, used by Terraform to identify the current backend site and by RustFS while joining peers. Omit both `access_key` and `secret_key` to use the provider credentials for this peer.",
+					Optional:            true,
 					Sensitive:           true,
 				},
 			},
@@ -133,7 +133,7 @@ func siteReplicationStatusFilterDataSourceAttributes() map[string]datasourceSche
 			Optional:            true,
 		},
 		"raw_json": datasourceSchema.StringAttribute{
-			MarkdownDescription: "JSON response body re-serialized from the RustFS admin client model.",
+			MarkdownDescription: "Raw JSON response body returned by the RustFS admin API.",
 			Computed:            true,
 		},
 		"id": datasourceSchema.StringAttribute{

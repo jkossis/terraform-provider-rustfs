@@ -28,12 +28,21 @@ type siteReplicationAdminClient interface {
 	SRStatusInfo(context.Context, srStatusOptions) (srStatusInfo, error)
 }
 
+type peerDeploymentIDResolver interface {
+	PeerDeploymentID(context.Context, peerSite) (string, error)
+}
+
+type siteReplicationPeerCredentialProvider interface {
+	SiteReplicationPeerCredentials() (string, string)
+}
+
 type rustfsClient struct {
-	httpClient *http.Client
-	endpoint   string
-	secure     bool
-	accessKey  string
-	secretKey  string
+	httpClient            *http.Client
+	endpoint              string
+	secure                bool
+	accessKey             string
+	secretKey             string
+	insecureSkipTLSVerify bool
 }
 
 func newRustFSClient(endpoint, accessKey, secretKey string, insecureSkipTLSVerify bool) (*rustfsClient, error) {
@@ -53,11 +62,12 @@ func newRustFSClient(endpoint, accessKey, secretKey string, insecureSkipTLSVerif
 	}
 
 	return &rustfsClient{
-		httpClient: &http.Client{Transport: transport},
-		endpoint:   normalizedEndpoint,
-		secure:     secure,
-		accessKey:  accessKey,
-		secretKey:  secretKey,
+		httpClient:            &http.Client{Transport: transport},
+		endpoint:              normalizedEndpoint,
+		secure:                secure,
+		accessKey:             accessKey,
+		secretKey:             secretKey,
+		insecureSkipTLSVerify: insecureSkipTLSVerify,
 	}, nil
 }
 
@@ -151,6 +161,24 @@ func (c *rustfsClient) SRStatusInfo(ctx context.Context, opts srStatusOptions) (
 	var result srStatusInfo
 	err := c.executeSiteReplicationRequest(ctx, http.MethodGet, "/status", siteReplicationStatusQuery(opts), nil, &result)
 	return result, err
+}
+
+func (c *rustfsClient) PeerDeploymentID(ctx context.Context, site peerSite) (string, error) {
+	peerClient, err := newRustFSClient(site.Endpoint, site.AccessKey, site.SecretKey, c.insecureSkipTLSVerify)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := peerClient.SRMetaInfo(ctx, srStatusOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return info.DeploymentID, nil
+}
+
+func (c *rustfsClient) SiteReplicationPeerCredentials() (string, string) {
+	return c.accessKey, c.secretKey
 }
 
 func (c *rustfsClient) executeSiteReplicationRequest(ctx context.Context, method, suffix string, query url.Values, body []byte, result any) error {

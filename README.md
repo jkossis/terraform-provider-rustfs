@@ -32,16 +32,20 @@ resource "rustfs_site_replication" "example" {
 
   peer = [
     {
+      name       = "site-a"
+      endpoint   = "https://site-a.example.com:9000"
+    },
+    {
       name       = "site-b"
       endpoint   = "https://site-b.example.com:9000"
-      access_key = var.site_b_access_key
-      secret_key = var.site_b_secret_key
     },
   ]
 }
 ```
 
-The configured provider endpoint is treated as the local RustFS site. Remote peer credentials are used by RustFS only while joining the peer sites.
+The `peer` list can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint and omits that site from the RustFS add request.
+
+By default, Terraform uses the provider `access_key` and `secret_key` for each peer. To use different credentials for a specific peer, set both `access_key` and `secret_key` on that peer.
 
 Import uses the fixed singleton ID `site-replication`:
 
@@ -79,10 +83,13 @@ Run the site replication resource acceptance test only against disposable replic
 
 ```shell
 export TF_ACC=1
-export RUSTFS_SITE_REPLICATION_PEER_NAME="site-b"
-export RUSTFS_SITE_REPLICATION_PEER_ENDPOINT="https://site-b.example.com:9000"
-export RUSTFS_SITE_REPLICATION_PEER_ACCESS_KEY="..."
-export RUSTFS_SITE_REPLICATION_PEER_SECRET_KEY="..."
+export RUSTFS_ENDPOINT="https://rustfs.example.com:9000"
+export RUSTFS_ACCESS_KEY="..."
+export RUSTFS_SECRET_KEY="..."
+export RUSTFS_SITE_REPLICATION_PEERS='[
+  {"name":"site-a","endpoint":"https://site-a.example.com:9000"},
+  {"name":"site-b","endpoint":"https://site-b.example.com:9000"}
+]'
 go test ./internal/provider -run TestAccSiteReplicationResource_basic -v
 ```
 

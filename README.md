@@ -1,64 +1,93 @@
-# Terraform Provider Scaffolding (Terraform Plugin Framework)
+# Terraform Provider for RustFS
 
-_This template repository is built on the [Terraform Plugin Framework](https://github.com/hashicorp/terraform-plugin-framework). The template repository built on the [Terraform Plugin SDK](https://github.com/hashicorp/terraform-plugin-sdk) can be found at [terraform-provider-scaffolding](https://github.com/hashicorp/terraform-provider-scaffolding). See [Which SDK Should I Use?](https://developer.hashicorp.com/terraform/plugin/framework-benefits) in the Terraform documentation for additional information._
-
-This repository is a *template* for a [Terraform](https://www.terraform.io) provider. It is intended as a starting point for creating Terraform providers, containing:
-
-- A resource and a data source (`internal/provider/`),
-- Examples (`examples/`) and generated documentation (`docs/`),
-- Miscellaneous meta files.
-
-These files contain boilerplate code that you will need to edit to create your own Terraform provider. Tutorials for creating Terraform providers can be found on the [HashiCorp Developer](https://developer.hashicorp.com/terraform/tutorials/providers-plugin-framework) platform. _Terraform Plugin Framework specific guides are titled accordingly._
-
-Please see the [GitHub template repository documentation](https://help.github.com/en/github/creating-cloning-and-archiving-repositories/creating-a-repository-from-a-template) for how to create a new repository from this template on GitHub.
-
-Once you've written your provider, you'll want to [publish it on the Terraform Registry](https://developer.hashicorp.com/terraform/registry/providers/publishing) so that others can use it.
+This provider manages RustFS administration APIs. The initial implementation focuses on RustFS site replication.
 
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://golang.org/doc/install) >= 1.24
+- [Go](https://go.dev/doc/install) >= 1.24
 
-## Building the Provider
+## Provider Configuration
 
-1. Clone the repository
-1. Enter the repository directory
-1. Build the provider using the Go `install` command:
-
-```shell
-go install
+```terraform
+provider "rustfs" {
+  endpoint   = "https://rustfs.example.com:9000"
+  access_key = var.rustfs_access_key
+  secret_key = var.rustfs_secret_key
+}
 ```
 
-## Adding Dependencies
+Configuration can also be supplied with environment variables:
 
-This provider uses [Go modules](https://github.com/golang/go/wiki/Modules).
-Please see the Go documentation for the most up to date information about using Go modules.
+- `RUSTFS_ENDPOINT`
+- `RUSTFS_ACCESS_KEY`
+- `RUSTFS_SECRET_KEY`
+- `RUSTFS_INSECURE_SKIP_TLS_VERIFY=true`
 
-To add a new dependency `github.com/author/dependency` to your Terraform provider:
+## Site Replication
 
-```shell
-go get github.com/author/dependency
-go mod tidy
+```terraform
+resource "rustfs_site_replication" "example" {
+  replicate_ilm_expiry = true
+
+  peer = [
+    {
+      name       = "site-b"
+      endpoint   = "https://site-b.example.com:9000"
+      access_key = var.site_b_access_key
+      secret_key = var.site_b_secret_key
+    },
+  ]
+}
 ```
 
-Then commit the changes to `go.mod` and `go.sum`.
+The configured provider endpoint is treated as the local RustFS site. Remote peer credentials are used by RustFS only while joining the peer sites.
 
-## Using the Provider
-
-Fill this in for each provider
-
-## Developing the Provider
-
-If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (see [Requirements](#requirements) above).
-
-To compile the provider, run `go install`. This will build the provider and put the provider binary in the `$GOPATH/bin` directory.
-
-To generate or update documentation, run `make generate`.
-
-In order to run the full suite of Acceptance tests, run `make testacc`.
-
-*Note:* Acceptance tests create real resources, and often cost money to run.
+Import uses the fixed singleton ID `site-replication`:
 
 ```shell
-make testacc
+terraform import rustfs_site_replication.example site-replication
+```
+
+## Data Sources
+
+- `rustfs_site_replication_info`
+- `rustfs_site_replication_status`
+- `rustfs_site_replication_metainfo`
+
+The status and metainfo data sources expose typed top-level fields and a `raw_json` attribute for the full RustFS response.
+
+## Development
+
+Build and test the provider:
+
+```shell
+go test ./...
+```
+
+Run data source acceptance tests against a RustFS deployment:
+
+```shell
+export TF_ACC=1
+export RUSTFS_ENDPOINT="https://rustfs.example.com:9000"
+export RUSTFS_ACCESS_KEY="..."
+export RUSTFS_SECRET_KEY="..."
+go test ./internal/provider -run 'TestAccSiteReplication.*DataSource' -v
+```
+
+Run the site replication resource acceptance test only against disposable replication test sites. It creates site replication topology and removes all site replication state during destroy:
+
+```shell
+export TF_ACC=1
+export RUSTFS_SITE_REPLICATION_PEER_NAME="site-b"
+export RUSTFS_SITE_REPLICATION_PEER_ENDPOINT="https://site-b.example.com:9000"
+export RUSTFS_SITE_REPLICATION_PEER_ACCESS_KEY="..."
+export RUSTFS_SITE_REPLICATION_PEER_SECRET_KEY="..."
+go test ./internal/provider -run TestAccSiteReplicationResource_basic -v
+```
+
+Generate documentation:
+
+```shell
+make generate
 ```

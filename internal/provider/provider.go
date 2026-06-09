@@ -5,55 +5,69 @@ package provider
 
 import (
 	"context"
-	"net/http"
+	"fmt"
+	"os"
 
-	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
-	"github.com/hashicorp/terraform-plugin-framework/function"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure ScaffoldingProvider satisfies various provider interfaces.
-var _ provider.Provider = &ScaffoldingProvider{}
-var _ provider.ProviderWithFunctions = &ScaffoldingProvider{}
-var _ provider.ProviderWithEphemeralResources = &ScaffoldingProvider{}
-var _ provider.ProviderWithActions = &ScaffoldingProvider{}
+// Ensure RustFSProvider satisfies provider interfaces.
+var _ provider.Provider = &RustFSProvider{}
 
-// ScaffoldingProvider defines the provider implementation.
-type ScaffoldingProvider struct {
+// RustFSProvider defines the provider implementation.
+type RustFSProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
 }
 
-// ScaffoldingProviderModel describes the provider data model.
-type ScaffoldingProviderModel struct {
-	Endpoint types.String `tfsdk:"endpoint"`
+// RustFSProviderModel describes the provider data model.
+type RustFSProviderModel struct {
+	Endpoint              types.String `tfsdk:"endpoint"`
+	AccessKey             types.String `tfsdk:"access_key"`
+	SecretKey             types.String `tfsdk:"secret_key"`
+	InsecureSkipTLSVerify types.Bool   `tfsdk:"insecure_skip_tls_verify"`
 }
 
-func (p *ScaffoldingProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "scaffolding"
+func (p *RustFSProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+	resp.TypeName = "rustfs"
 	resp.Version = p.version
 }
 
-func (p *ScaffoldingProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *RustFSProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Terraform provider for RustFS administration APIs.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Example provider attribute",
+				MarkdownDescription: "RustFS endpoint. Include `http://` or `https://` to control transport security. Can also be set with `RUSTFS_ENDPOINT`.",
+				Optional:            true,
+			},
+			"access_key": schema.StringAttribute{
+				MarkdownDescription: "RustFS administrator access key. Can also be set with `RUSTFS_ACCESS_KEY`.",
+				Optional:            true,
+				Sensitive:           true,
+			},
+			"secret_key": schema.StringAttribute{
+				MarkdownDescription: "RustFS administrator secret key. Can also be set with `RUSTFS_SECRET_KEY`.",
+				Optional:            true,
+				Sensitive:           true,
+			},
+			"insecure_skip_tls_verify": schema.BoolAttribute{
+				MarkdownDescription: "Skip TLS certificate verification when connecting to RustFS over HTTPS. Can also be set with `RUSTFS_INSECURE_SKIP_TLS_VERIFY=true`.",
 				Optional:            true,
 			},
 		},
 	}
 }
 
-func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var data ScaffoldingProviderModel
+func (p *RustFSProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+	var data RustFSProviderModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
@@ -61,49 +75,83 @@ func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.Config
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
+	endpoint := stringConfigValue(data.Endpoint, "RUSTFS_ENDPOINT")
+	accessKey := stringConfigValue(data.AccessKey, "RUSTFS_ACCESS_KEY")
+	secretKey := stringConfigValue(data.SecretKey, "RUSTFS_SECRET_KEY")
+	insecureSkipTLSVerify := boolConfigValue(data.InsecureSkipTLSVerify, "RUSTFS_INSECURE_SKIP_TLS_VERIFY")
 
-	// Example client configuration for data sources and resources
-	client := http.DefaultClient
+	if endpoint == "" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("endpoint"),
+			"Missing RustFS Endpoint",
+			"Configure endpoint in the provider block or set the RUSTFS_ENDPOINT environment variable.",
+		)
+	}
+
+	if accessKey == "" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("access_key"),
+			"Missing RustFS Access Key",
+			"Configure access_key in the provider block or set the RUSTFS_ACCESS_KEY environment variable.",
+		)
+	}
+
+	if secretKey == "" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("secret_key"),
+			"Missing RustFS Secret Key",
+			"Configure secret_key in the provider block or set the RUSTFS_SECRET_KEY environment variable.",
+		)
+	}
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	client, err := newRustFSClient(endpoint, accessKey, secretKey, insecureSkipTLSVerify)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Configure RustFS Client", fmt.Sprintf("Unable to create RustFS admin client: %s", err))
+		return
+	}
+
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }
 
-func (p *ScaffoldingProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *RustFSProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewExampleResource,
+		NewSiteReplicationResource,
 	}
 }
 
-func (p *ScaffoldingProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		NewExampleEphemeralResource,
-	}
-}
-
-func (p *ScaffoldingProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *RustFSProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewExampleDataSource,
-	}
-}
-
-func (p *ScaffoldingProvider) Functions(ctx context.Context) []func() function.Function {
-	return []func() function.Function{
-		NewExampleFunction,
-	}
-}
-
-func (p *ScaffoldingProvider) Actions(ctx context.Context) []func() action.Action {
-	return []func() action.Action{
-		NewExampleAction,
+		NewSiteReplicationInfoDataSource,
+		NewSiteReplicationMetaInfoDataSource,
+		NewSiteReplicationStatusDataSource,
 	}
 }
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &ScaffoldingProvider{
+		return &RustFSProvider{
 			version: version,
 		}
 	}
+}
+
+func stringConfigValue(value types.String, envName string) string {
+	if !value.IsNull() && !value.IsUnknown() {
+		return value.ValueString()
+	}
+
+	return os.Getenv(envName)
+}
+
+func boolConfigValue(value types.Bool, envName string) bool {
+	if !value.IsNull() && !value.IsUnknown() {
+		return value.ValueBool()
+	}
+
+	return os.Getenv(envName) == "true"
 }

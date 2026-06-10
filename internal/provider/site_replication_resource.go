@@ -29,6 +29,11 @@ type SiteReplicationResource struct {
 
 const siteReplicationResourceID = "site-replication"
 
+type siteReplicationAddRequest struct {
+	TargetSite *peerSite
+	Peers      []peerSite
+}
+
 type siteReplicationResourceModel struct {
 	ID                      types.String `tfsdk:"id"`
 	ReplicateILMExpiry      types.Bool   `tfsdk:"replicate_ilm_expiry"`
@@ -183,12 +188,12 @@ func (r *SiteReplicationResource) configureReplication(
 		return false
 	}
 
-	peers, ok := r.peersForAdd(ctx, configuredPeers, addError)
+	addRequest, ok := r.addRequest(ctx, configuredPeers, addError)
 	if !ok {
 		return false
 	}
 
-	if len(peers) == 0 {
+	if len(addRequest.Peers) == 0 {
 		addAttributeError(
 			path.Root("peers"),
 			"Missing Remote Site Replication Peers",
@@ -198,7 +203,7 @@ func (r *SiteReplicationResource) configureReplication(
 	}
 
 	desiredILMExpiry := data.ReplicateILMExpiry.ValueBool()
-	_, err := r.client.SiteReplicationAdd(ctx, peers, srAddOptions{ReplicateILMExpiry: desiredILMExpiry})
+	err := r.siteReplicationAdd(ctx, addRequest, srAddOptions{ReplicateILMExpiry: desiredILMExpiry})
 	if err != nil {
 		addError("Unable to Configure Site Replication", fmt.Sprintf("RustFS returned an error while configuring site replication: %s", err))
 		return false
@@ -226,6 +231,21 @@ func (r *SiteReplicationResource) configureReplication(
 	}
 
 	return true
+}
+
+func (r *SiteReplicationResource) siteReplicationAdd(ctx context.Context, addRequest siteReplicationAddRequest, opts srAddOptions) error {
+	if addRequest.TargetSite == nil {
+		_, err := r.client.SiteReplicationAdd(ctx, addRequest.Peers, opts)
+		return err
+	}
+
+	adder, ok := r.client.(peerSiteReplicationAdder)
+	if !ok {
+		return fmt.Errorf("client cannot configure site replication through canonical site %q", addRequest.TargetSite.Endpoint)
+	}
+
+	_, err := adder.SiteReplicationAddFromPeer(ctx, *addRequest.TargetSite, addRequest.Peers, opts)
+	return err
 }
 
 func (r *SiteReplicationResource) peersWithCredentials(
@@ -279,23 +299,24 @@ func (r *SiteReplicationResource) peersWithCredentials(
 	return resolvedPeers, true
 }
 
-func (r *SiteReplicationResource) peersForAdd(ctx context.Context, peers []peerSite, addError func(string, string)) ([]peerSite, bool) {
+func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSite, addError func(string, string)) (siteReplicationAddRequest, bool) {
 	resolver, ok := r.client.(peerDeploymentIDResolver)
 	if !ok {
-		return peers, true
+		return siteReplicationAddRequest{Peers: peers}, true
 	}
 
 	localInfo, err := r.client.SRMetaInfo(ctx, srStatusOptions{})
 	if err != nil {
 		addError("Unable to Identify Local Site", fmt.Sprintf("RustFS returned an error while identifying the local site behind the provider endpoint: %s", err))
-		return nil, false
+		return siteReplicationAddRequest{}, false
 	}
 
 	if localInfo.DeploymentID == "" {
-		return peers, true
+		return siteReplicationAddRequest{Peers: peers}, true
 	}
 
 	filtered := make([]peerSite, 0, len(peers))
+	var targetSite *peerSite
 	for _, peer := range peers {
 		peerDeploymentID, err := resolver.PeerDeploymentID(ctx, peer)
 		if err != nil {
@@ -303,24 +324,26 @@ func (r *SiteReplicationResource) peersForAdd(ctx context.Context, peers []peerS
 				"Unable to Identify Site Replication Peer",
 				fmt.Sprintf("RustFS returned an error while identifying peer %q at %q: %s", peer.Name, peer.Endpoint, err),
 			)
-			return nil, false
+			return siteReplicationAddRequest{}, false
 		}
 		if peerDeploymentID == "" {
 			addError(
 				"Unable to Identify Site Replication Peer",
 				fmt.Sprintf("RustFS did not return a deployment ID for peer %q at %q.", peer.Name, peer.Endpoint),
 			)
-			return nil, false
+			return siteReplicationAddRequest{}, false
 		}
 
 		if peerDeploymentID == localInfo.DeploymentID {
+			currentBackend := peer
+			targetSite = &currentBackend
 			continue
 		}
 
 		filtered = append(filtered, peer)
 	}
 
-	return filtered, true
+	return siteReplicationAddRequest{TargetSite: targetSite, Peers: filtered}, true
 }
 
 func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplicationResourceModel, removeWhenDisabled bool, addError func(string, string)) bool {

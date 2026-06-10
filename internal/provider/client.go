@@ -32,6 +32,10 @@ type peerDeploymentIDResolver interface {
 	PeerDeploymentID(context.Context, peerSite) (string, error)
 }
 
+type peerSiteReplicationAdder interface {
+	SiteReplicationAddFromPeer(context.Context, peerSite, []peerSite, srAddOptions) (replicateAddStatus, error)
+}
+
 type siteReplicationPeerCredentialProvider interface {
 	SiteReplicationPeerCredentials() (string, string)
 }
@@ -164,7 +168,7 @@ func (c *rustfsClient) SRStatusInfo(ctx context.Context, opts srStatusOptions) (
 }
 
 func (c *rustfsClient) PeerDeploymentID(ctx context.Context, site peerSite) (string, error) {
-	peerClient, err := newRustFSClient(site.Endpoint, site.AccessKey, site.SecretKey, c.insecureSkipTLSVerify)
+	peerClient, err := c.peerClient(site)
 	if err != nil {
 		return "", err
 	}
@@ -177,8 +181,21 @@ func (c *rustfsClient) PeerDeploymentID(ctx context.Context, site peerSite) (str
 	return info.DeploymentID, nil
 }
 
+func (c *rustfsClient) SiteReplicationAddFromPeer(ctx context.Context, site peerSite, sites []peerSite, opts srAddOptions) (replicateAddStatus, error) {
+	peerClient, err := c.peerClient(site)
+	if err != nil {
+		return replicateAddStatus{}, err
+	}
+
+	return peerClient.SiteReplicationAdd(ctx, sites, opts)
+}
+
 func (c *rustfsClient) SiteReplicationPeerCredentials() (string, string) {
 	return c.accessKey, c.secretKey
+}
+
+func (c *rustfsClient) peerClient(site peerSite) (*rustfsClient, error) {
+	return newRustFSClient(site.Endpoint, site.AccessKey, site.SecretKey, c.insecureSkipTLSVerify)
 }
 
 func (c *rustfsClient) executeSiteReplicationRequest(ctx context.Context, method, suffix string, query url.Values, body []byte, result any) error {

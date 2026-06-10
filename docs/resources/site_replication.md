@@ -34,7 +34,7 @@ resource "rustfs_site_replication" "example" {
 
 ### Required
 
-- `peers` (Attributes List) Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS. (see [below for nested schema](#nestedatt--peers))
+- `peers` (Attributes List) Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs, omits whichever site is currently serving the provider endpoint, and sends the add request through that site's canonical endpoint when available. (see [below for nested schema](#nestedatt--peers))
 
 ### Optional
 

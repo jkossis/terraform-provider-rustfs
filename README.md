@@ -43,7 +43,7 @@ resource "rustfs_site_replication" "example" {
 }
 ```
 
-The `peers` list is the desired set of RustFS peer sites for replication. It can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint and omits that site from the RustFS add request.
+The `peers` list is the desired set of RustFS peer sites for replication. It can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint, omits that site from the RustFS add request, and sends the add request through that site's canonical endpoint when available.
 
 By default, Terraform uses the provider `access_key` and `secret_key` for each peer. To use different credentials for a specific peer, set both `access_key` and `secret_key` on that peer.
 

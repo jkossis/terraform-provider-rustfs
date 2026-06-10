@@ -14,6 +14,7 @@ import (
 
 type fakeSiteReplicationClient struct {
 	addSites          []peerSite
+	addTargetSite     *peerSite
 	addOpts           srAddOptions
 	info              siteReplicationInfo
 	metaInfo          srInfo
@@ -27,6 +28,11 @@ func (f *fakeSiteReplicationClient) SiteReplicationAdd(_ context.Context, sites 
 	f.addSites = sites
 	f.addOpts = opts
 	return replicateAddStatus{}, nil
+}
+
+func (f *fakeSiteReplicationClient) SiteReplicationAddFromPeer(ctx context.Context, site peerSite, sites []peerSite, opts srAddOptions) (replicateAddStatus, error) {
+	f.addTargetSite = &site
+	return f.SiteReplicationAdd(ctx, sites, opts)
 }
 
 func (f *fakeSiteReplicationClient) SiteReplicationEdit(_ context.Context, _ peerInfo, opts srEditOptions) (replicateEditStatus, error) {
@@ -174,7 +180,58 @@ func TestSiteReplicationRejectsPartialPeerCredentials(t *testing.T) {
 	}
 }
 
-func TestSiteReplicationFiltersCurrentBackendFromAllPeers(t *testing.T) {
+func TestSiteReplicationUsesCanonicalCurrentBackendForAdd(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSiteReplicationClient{
+		metaInfo: srInfo{DeploymentID: "site-a-deployment"},
+		peerDeploymentIDs: map[string]string{
+			"https://site-a.example.com:9000": "site-a-deployment",
+			"https://site-b.example.com:9000": "site-b-deployment",
+		},
+	}
+	resource := &SiteReplicationResource{client: client}
+	data := siteReplicationResourceModel{
+		ReplicateILMExpiry: types.BoolValue(true),
+		Peers: testPeerListValueFromModels(t, []siteReplicationPeerConfigModel{
+			{
+				Name:      types.StringValue("site-a"),
+				Endpoint:  types.StringValue("https://site-a.example.com:9000"),
+				AccessKey: types.StringValue("access"),
+				SecretKey: types.StringValue("secret"),
+			},
+			{
+				Name:      types.StringValue("site-b"),
+				Endpoint:  types.StringValue("https://site-b.example.com:9000"),
+				AccessKey: types.StringValue("access"),
+				SecretKey: types.StringValue("secret"),
+			},
+		}),
+	}
+
+	ok := resource.configureReplication(context.Background(), &data, failAttributeError(t), failError(t))
+	if !ok {
+		t.Fatalf("expected configureReplication to succeed")
+	}
+
+	if client.addTargetSite == nil {
+		t.Fatalf("expected add request to use canonical current backend")
+	}
+
+	if client.addTargetSite.Endpoint != "https://site-a.example.com:9000" {
+		t.Fatalf("expected canonical add target site-a, got %q", client.addTargetSite.Endpoint)
+	}
+
+	if len(client.addSites) != 1 {
+		t.Fatalf("expected one non-local add site, got %d", len(client.addSites))
+	}
+
+	if client.addSites[0].Name != "site-b" {
+		t.Fatalf("expected site-b to remain in add body, got %q", client.addSites[0].Name)
+	}
+}
+
+func TestSiteReplicationAddRequestFiltersCurrentBackendFromAllPeers(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeSiteReplicationClient{
@@ -186,20 +243,28 @@ func TestSiteReplicationFiltersCurrentBackendFromAllPeers(t *testing.T) {
 	}
 	resource := &SiteReplicationResource{client: client}
 
-	peers, ok := resource.peersForAdd(context.Background(), []peerSite{
+	addRequest, ok := resource.addRequest(context.Background(), []peerSite{
 		{Name: "site-a", Endpoint: "https://site-a.example.com:9000"},
 		{Name: "site-b", Endpoint: "https://site-b.example.com:9000"},
 	}, failError(t))
 	if !ok {
-		t.Fatalf("expected peersForAdd to succeed")
+		t.Fatalf("expected addRequest to succeed")
 	}
 
-	if len(peers) != 1 {
-		t.Fatalf("expected one non-local peer, got %d", len(peers))
+	if addRequest.TargetSite == nil {
+		t.Fatalf("expected add target site")
 	}
 
-	if peers[0].Name != "site-b" {
-		t.Fatalf("expected site-b to remain, got %q", peers[0].Name)
+	if addRequest.TargetSite.Name != "site-a" {
+		t.Fatalf("expected site-a to be the add target, got %q", addRequest.TargetSite.Name)
+	}
+
+	if len(addRequest.Peers) != 1 {
+		t.Fatalf("expected one non-local peer, got %d", len(addRequest.Peers))
+	}
+
+	if addRequest.Peers[0].Name != "site-b" {
+		t.Fatalf("expected site-b to remain, got %q", addRequest.Peers[0].Name)
 	}
 }
 
@@ -215,17 +280,17 @@ func TestSiteReplicationFailsWhenPeerDeploymentIDIsMissing(t *testing.T) {
 	resource := &SiteReplicationResource{client: client}
 	var errorSummary string
 
-	peers, ok := resource.peersForAdd(context.Background(), []peerSite{
+	addRequest, ok := resource.addRequest(context.Background(), []peerSite{
 		{Name: "site-b", Endpoint: "https://site-b.example.com:9000"},
 	}, func(summary, _ string) {
 		errorSummary = summary
 	})
 	if ok {
-		t.Fatalf("expected peersForAdd to fail")
+		t.Fatalf("expected addRequest to fail")
 	}
 
-	if peers != nil {
-		t.Fatalf("expected no peers, got %#v", peers)
+	if addRequest.Peers != nil {
+		t.Fatalf("expected no peers, got %#v", addRequest.Peers)
 	}
 
 	if errorSummary != "Unable to Identify Site Replication Peer" {
@@ -241,14 +306,7 @@ func testPeerListValue(t *testing.T) types.List {
 func testPeerListValueWithCredentials(t *testing.T, accessKey, secretKey types.String) types.List {
 	t.Helper()
 
-	peerType := types.ObjectType{AttrTypes: map[string]attr.Type{
-		"name":       types.StringType,
-		"endpoint":   types.StringType,
-		"access_key": types.StringType,
-		"secret_key": types.StringType,
-	}}
-
-	value, diags := types.ListValueFrom(context.Background(), peerType, []siteReplicationPeerConfigModel{
+	return testPeerListValueFromModels(t, []siteReplicationPeerConfigModel{
 		{
 			Name:      types.StringValue("site-b"),
 			Endpoint:  types.StringValue("https://site-b.example.com:9000"),
@@ -256,6 +314,19 @@ func testPeerListValueWithCredentials(t *testing.T, accessKey, secretKey types.S
 			SecretKey: secretKey,
 		},
 	})
+}
+
+func testPeerListValueFromModels(t *testing.T, peers []siteReplicationPeerConfigModel) types.List {
+	t.Helper()
+
+	peerType := types.ObjectType{AttrTypes: map[string]attr.Type{
+		"name":       types.StringType,
+		"endpoint":   types.StringType,
+		"access_key": types.StringType,
+		"secret_key": types.StringType,
+	}}
+
+	value, diags := types.ListValueFrom(context.Background(), peerType, peers)
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %v", diags)
 	}

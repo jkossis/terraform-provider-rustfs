@@ -11,7 +11,7 @@ import (
 
 func siteReplicationPeersResourceAttribute() resourceSchema.Attribute {
 	return resourceSchema.ListNestedAttribute{
-		MarkdownDescription: "Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs and omits whichever site is currently serving the provider endpoint before calling RustFS.",
+		MarkdownDescription: "Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs, omits whichever site is currently serving the provider endpoint, and sends the add request through that site's canonical endpoint when available.",
 		Required:            true,
 		NestedObject: resourceSchema.NestedAttributeObject{
 			Attributes: map[string]resourceSchema.Attribute{

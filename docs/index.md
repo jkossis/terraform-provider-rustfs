@@ -12,6 +12,14 @@ Terraform provider for RustFS administration APIs.
 ## Example Usage
 
 ```terraform
+terraform {
+  required_providers {
+    rustfs = {
+      source = "jkossis/rustfs"
+    }
+  }
+}
+
 provider "rustfs" {
   endpoint   = "https://rustfs.example.com:9000"
   access_key = var.rustfs_access_key
@@ -24,7 +32,7 @@ provider "rustfs" {
 
 ### Optional
 
-- `access_key` (String, Sensitive) RustFS administrator access key. Can also be set with `RUSTFS_ACCESS_KEY`.
-- `endpoint` (String) RustFS endpoint. Include `http://` or `https://` to control transport security. Can also be set with `RUSTFS_ENDPOINT`.
-- `insecure_skip_tls_verify` (Boolean) Skip TLS certificate verification when connecting to RustFS over HTTPS. Can also be set with `RUSTFS_INSECURE_SKIP_TLS_VERIFY=true`.
-- `secret_key` (String, Sensitive) RustFS administrator secret key. Can also be set with `RUSTFS_SECRET_KEY`.
+- `access_key` (String, Sensitive) RustFS administrator access key. Can also be set with RUSTFS_ACCESS_KEY.
+- `endpoint` (String) RustFS endpoint. Include `http://` or `https://` to control transport security. Can also be set with RUSTFS_ENDPOINT.
+- `insecure_skip_tls_verify` (Boolean) Skip TLS certificate verification when connecting to RustFS over HTTPS. Can also be set with RUSTFS_INSECURE_SKIP_TLS_VERIFY.
+- `secret_key` (String, Sensitive) RustFS administrator secret key. Can also be set with RUSTFS_SECRET_KEY.

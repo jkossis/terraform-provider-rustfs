@@ -45,7 +45,7 @@ resource "rustfs_site_replication" "example" {
 - `api_version` (String) Site replication API version reported by RustFS.
 - `enabled` (Boolean) Whether RustFS reports site replication as enabled.
 - `id` (String) Resource identifier. Site replication is global to the configured RustFS deployment, so this value is always `site-replication` and is the import ID.
-- `service_account_access_key` (String) RustFS site replication service account access key.
+- `service_account_access_key` (String, Sensitive) RustFS site replication service account access key.
 - `sites` (Attributes List) RustFS site replication topology currently reported by RustFS. (see [below for nested schema](#nestedatt--sites))
 
 <a id="nestedatt--peers"></a>

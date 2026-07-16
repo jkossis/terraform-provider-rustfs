@@ -45,7 +45,7 @@ data "rustfs_site_replication_status" "example" {
 - `max_ilm_expiry_rules` (Number) Maximum ILM expiry rule count reported across sites.
 - `max_policies` (Number) Maximum policy count reported across sites.
 - `max_users` (Number) Maximum user count reported across sites.
-- `raw_json` (String) Raw JSON response body returned by the RustFS admin API.
+- `raw_json` (String, Sensitive) Raw JSON response body returned by the RustFS admin API and may contain service-account credentials.
 - `sites` (Attributes List) RustFS site replication topology currently reported by RustFS. (see [below for nested schema](#nestedatt--sites))
 
 <a id="nestedatt--sites"></a>

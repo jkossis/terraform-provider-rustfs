@@ -1,4 +1,4 @@
-module tools
+module github.com/jkossis/terraform-provider-rustfs/tools
 
 go 1.25.8
 

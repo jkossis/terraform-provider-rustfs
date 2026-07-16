@@ -47,7 +47,7 @@ type siteReplicationStatusDataSourceModel struct {
 }
 
 func (d *SiteReplicationStatusDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_site_replication_status"
+	resp.TypeName = typeNamePrefix + "_site_replication_status"
 }
 
 func (d *SiteReplicationStatusDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {

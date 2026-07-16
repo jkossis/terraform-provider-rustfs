@@ -33,7 +33,7 @@ type siteReplicationInfoDataSourceModel struct {
 }
 
 func (d *SiteReplicationInfoDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_site_replication_info"
+	resp.TypeName = typeNamePrefix + "_site_replication_info"
 }
 
 func (d *SiteReplicationInfoDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
@@ -44,9 +44,9 @@ func (d *SiteReplicationInfoDataSource) Schema(ctx context.Context, req datasour
 			"enabled":                    schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether RustFS reports site replication as enabled."},
 			"name":                       schema.StringAttribute{Computed: true, MarkdownDescription: "Local site name reported by RustFS."},
 			"sites":                      siteReplicationSitesDataSourceAttribute(),
-			"service_account_access_key": schema.StringAttribute{Computed: true, MarkdownDescription: "RustFS site replication service account access key."},
+			"service_account_access_key": schema.StringAttribute{Computed: true, Sensitive: true, MarkdownDescription: "RustFS site replication service account access key."},
 			"api_version":                schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."},
-			"raw_json":                   schema.StringAttribute{Computed: true, MarkdownDescription: "Raw JSON response body returned by the RustFS admin API."},
+			"raw_json":                   schema.StringAttribute{Computed: true, Sensitive: true, MarkdownDescription: "Raw JSON response body returned by the RustFS admin API and may contain service-account credentials."},
 		},
 	}
 }

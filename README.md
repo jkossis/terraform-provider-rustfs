@@ -5,7 +5,27 @@ This provider manages RustFS administration APIs. The initial implementation foc
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://go.dev/doc/install) >= 1.24
+- [Go](https://go.dev/doc/install) >= 1.25.8
+
+## Required Providers
+
+```terraform
+terraform {
+  required_providers {
+    rustfs = {
+      source = "jkossis/rustfs"
+    }
+  }
+}
+```
+
+## Install
+
+Initialize Terraform to install the provider from the registry:
+
+```shell
+terraform init
+```
 
 ## Provider Configuration
 
@@ -19,10 +39,12 @@ provider "rustfs" {
 
 Configuration can also be supplied with environment variables:
 
-- `RUSTFS_ENDPOINT`
-- `RUSTFS_ACCESS_KEY`
-- `RUSTFS_SECRET_KEY`
-- `RUSTFS_INSECURE_SKIP_TLS_VERIFY=true`
+- `RUSTFS_ENDPOINT`: RustFS endpoint, including `http://` or `https://`.
+- `RUSTFS_ACCESS_KEY`: RustFS administrator access key.
+- `RUSTFS_SECRET_KEY`: RustFS administrator secret key.
+- `RUSTFS_INSECURE_SKIP_TLS_VERIFY`: optional boolean accepted by Go's standard boolean parser, such as `true`, `false`, `1`, or `0`.
+
+Values set in the provider block take precedence over environment variables. `endpoint`, `access_key`, and `secret_key` must be provided either way. `insecure_skip_tls_verify` is optional and is not required for tests.
 
 ## Site Replication
 
@@ -59,11 +81,17 @@ terraform import rustfs_site_replication.example site-replication
 - `rustfs_site_replication_status`
 - `rustfs_site_replication_metainfo`
 
-The status and metainfo data sources expose typed top-level fields and a `raw_json` attribute for the full RustFS response.
+The data sources expose typed top-level fields and a sensitive `raw_json` attribute for the full RustFS response. Terraform redacts this value because RustFS responses can contain service-account credentials.
 
-## Development
+## Build
 
-Build and test the provider:
+Build the provider locally:
+
+```shell
+go build ./...
+```
+
+Run the fast test suite:
 
 ```shell
 go test ./...
@@ -78,6 +106,8 @@ export RUSTFS_ACCESS_KEY="..."
 export RUSTFS_SECRET_KEY="..."
 go test ./internal/provider -run 'TestAccSiteReplication.*DataSource' -v
 ```
+
+Acceptance tests are skipped unless `TF_ACC=1` is set. When `TF_ACC=1` is set, `RUSTFS_ENDPOINT`, `RUSTFS_ACCESS_KEY`, and `RUSTFS_SECRET_KEY` are required. `RUSTFS_INSECURE_SKIP_TLS_VERIFY` may be set when testing against a deployment with untrusted TLS certificates.
 
 Run the site replication resource acceptance test only against disposable replication test sites. It creates site replication topology and removes all site replication state during destroy:
 

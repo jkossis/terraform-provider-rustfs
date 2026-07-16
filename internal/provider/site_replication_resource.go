@@ -45,7 +45,7 @@ type siteReplicationResourceModel struct {
 }
 
 func (r *SiteReplicationResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_site_replication"
+	resp.TypeName = typeNamePrefix + "_site_replication"
 }
 
 func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -68,7 +68,7 @@ func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.Schem
 			"peers":                      siteReplicationPeersResourceAttribute(),
 			"sites":                      siteReplicationSitesResourceAttribute(),
 			"enabled":                    schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether RustFS reports site replication as enabled."},
-			"service_account_access_key": schema.StringAttribute{Computed: true, MarkdownDescription: "RustFS site replication service account access key."},
+			"service_account_access_key": schema.StringAttribute{Computed: true, Sensitive: true, MarkdownDescription: "RustFS site replication service account access key."},
 			"api_version":                schema.StringAttribute{Computed: true, MarkdownDescription: "Site replication API version reported by RustFS."},
 		},
 	}

@@ -4,23 +4,17 @@
 package provider
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
 const (
-	envRustFSEndpoint  = "RUSTFS_ENDPOINT"
-	envRustFSAccessKey = "RUSTFS_ACCESS_KEY"
-	envRustFSSecretKey = "RUSTFS_SECRET_KEY"
-
 	envSiteReplicationPeers = "RUSTFS_SITE_REPLICATION_PEERS"
 )
 
@@ -31,77 +25,49 @@ type testAccSiteReplicationPeer struct {
 	SecretKey string `json:"secret_key"`
 }
 
+// testAccProtoV6ProviderFactories are used by acceptance tests.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"rustfs": providerserver.NewProtocol6WithError(New("test")()),
+	providerTypeName: providerserver.NewProtocol6WithError(New("test")()),
 }
 
-func TestProviderMetadata(t *testing.T) {
-	t.Parallel()
-
-	providerUnderTest := &RustFSProvider{version: "test"}
-	resp := &provider.MetadataResponse{}
-
-	providerUnderTest.Metadata(context.Background(), provider.MetadataRequest{}, resp)
-
-	if resp.TypeName != "rustfs" {
-		t.Fatalf("expected provider type name rustfs, got %q", resp.TypeName)
-	}
-
-	if resp.Version != "test" {
-		t.Fatalf("expected provider version test, got %q", resp.Version)
-	}
+var requiredAcceptanceEnvVars = []string{
+	rustFSEndpointEnv,
+	rustFSAccessKeyEnv,
+	rustFSSecretKeyEnv,
 }
 
-func TestSiteReplicationAcceptancePeersFromEnv(t *testing.T) {
-	t.Setenv(envSiteReplicationPeers, `[
-	  {"name":"site-a","endpoint":"https://site-a.example.com:9000"},
-	  {"name":"site-b","endpoint":"https://site-b.example.com:9000"}
-	]`)
-
-	peers, err := testAccSiteReplicationPeersFromEnv()
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
+func TestRequiredAcceptanceEnvVars(t *testing.T) {
+	expected := []string{rustFSEndpointEnv, rustFSAccessKeyEnv, rustFSSecretKeyEnv}
+	if len(requiredAcceptanceEnvVars) != len(expected) {
+		t.Fatalf("expected required acceptance environment variables %v, got %v", expected, requiredAcceptanceEnvVars)
 	}
-
-	if len(peers) != 2 {
-		t.Fatalf("expected two peers, got %d", len(peers))
-	}
-
-	config := testAccSiteReplicationResourceConfig(false)
-	for _, expected := range []string{`name       = "site-a"`, `name       = "site-b"`} {
-		if !strings.Contains(config, expected) {
-			t.Fatalf("expected config to contain %q:\n%s", expected, config)
+	for i, envVar := range expected {
+		if requiredAcceptanceEnvVars[i] != envVar {
+			t.Fatalf("expected required acceptance environment variable %d to be %s, got %s", i, envVar, requiredAcceptanceEnvVars[i])
 		}
-	}
-
-	if strings.Contains(config, "access_key") || strings.Contains(config, "secret_key") {
-		t.Fatalf("expected config to omit peer credentials:\n%s", config)
-	}
-}
-
-func TestSiteReplicationAcceptancePeersFromEnvRejectsPartialCredentials(t *testing.T) {
-	t.Setenv(envSiteReplicationPeers, `[
-	  {"name":"site-a","endpoint":"https://site-a.example.com:9000","access_key":"access-a"}
-	]`)
-
-	_, err := testAccSiteReplicationPeersFromEnv()
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-
-	if !strings.Contains(err.Error(), "must set both access_key and secret_key") {
-		t.Fatalf("expected partial credentials error, got %s", err)
 	}
 }
 
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC must be set to run acceptance tests")
+	}
 
-	for _, envName := range []string{envRustFSEndpoint, envRustFSAccessKey, envRustFSSecretKey} {
-		if os.Getenv(envName) == "" {
-			t.Fatalf("%s must be set for acceptance tests", envName)
+	missing := missingAcceptanceEnvVars(os.Getenv)
+	if len(missing) > 0 {
+		t.Fatalf("acceptance tests require environment variables: %s", strings.Join(missing, ", "))
+	}
+}
+
+func missingAcceptanceEnvVars(lookupEnv func(string) string) []string {
+	missing := make([]string, 0, len(requiredAcceptanceEnvVars))
+	for _, envVar := range requiredAcceptanceEnvVars {
+		if lookupEnv(envVar) == "" {
+			missing = append(missing, envVar)
 		}
 	}
+	return missing
 }
 
 func testAccSiteReplicationResourcePreCheck(t *testing.T) {

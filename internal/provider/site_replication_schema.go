@@ -133,8 +133,9 @@ func siteReplicationStatusFilterDataSourceAttributes() map[string]datasourceSche
 			Optional:            true,
 		},
 		"raw_json": datasourceSchema.StringAttribute{
-			MarkdownDescription: "Raw JSON response body returned by the RustFS admin API.",
+			MarkdownDescription: "Raw JSON response body returned by the RustFS admin API and may contain service-account credentials.",
 			Computed:            true,
+			Sensitive:           true,
 		},
 		"id": datasourceSchema.StringAttribute{
 			MarkdownDescription: "Data source identifier.",

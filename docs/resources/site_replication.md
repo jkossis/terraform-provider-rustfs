@@ -3,12 +3,12 @@
 page_title: "rustfs_site_replication Resource - rustfs"
 subcategory: ""
 description: |-
-  Manages RustFS site replication topology. Configure peers with the desired RustFS peer sites; read sites for the topology RustFS reports after configuration.
+  Manages RustFS site replication topology. Configure peers with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read sites for the topology RustFS reports after configuration.
 ---
 
 # rustfs_site_replication (Resource)
 
-Manages RustFS site replication topology. Configure `peers` with the desired RustFS peer sites; read `sites` for the topology RustFS reports after configuration.
+Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration.
 
 ## Example Usage
 
@@ -34,7 +34,7 @@ resource "rustfs_site_replication" "example" {
 
 ### Required
 
-- `peers` (Attributes List) Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs, omits whichever site is currently serving the provider endpoint, and sends the add request through that site's canonical endpoint when available. (see [below for nested schema](#nestedatt--peers))
+- `peers` (Attributes List) RustFS sites for site replication. Include every canonical site in the active-active topology, including the deployment addressed by the provider endpoint; the provider resolves deployment IDs, sends the full topology in the request body, and sends the add request through that local site's canonical endpoint. (see [below for nested schema](#nestedatt--peers))
 
 ### Optional
 

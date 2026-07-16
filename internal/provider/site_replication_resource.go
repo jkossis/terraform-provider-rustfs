@@ -30,8 +30,9 @@ type SiteReplicationResource struct {
 const siteReplicationResourceID = "site-replication"
 
 type siteReplicationAddRequest struct {
-	TargetSite *peerSite
-	Peers      []peerSite
+	TargetSite      *peerSite
+	Peers           []peerSite
+	RemotePeerCount int
 }
 
 type siteReplicationResourceModel struct {
@@ -50,7 +51,7 @@ func (r *SiteReplicationResource) Metadata(ctx context.Context, req resource.Met
 
 func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages RustFS site replication topology. Configure `peers` with the desired RustFS peer sites; read `sites` for the topology RustFS reports after configuration.",
+		MarkdownDescription: "Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -132,7 +133,7 @@ func (r *SiteReplicationResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	if !r.configureReplication(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError) {
+	if !r.setILMExpiryReplication(ctx, data.ReplicateILMExpiry.ValueBool(), resp.Diagnostics.AddError) {
 		return
 	}
 
@@ -193,7 +194,7 @@ func (r *SiteReplicationResource) configureReplication(
 		return false
 	}
 
-	if len(addRequest.Peers) == 0 {
+	if addRequest.RemotePeerCount == 0 {
 		addAttributeError(
 			path.Root("peers"),
 			"Missing Remote Site Replication Peers",
@@ -209,21 +210,22 @@ func (r *SiteReplicationResource) configureReplication(
 		return false
 	}
 
-	if desiredILMExpiry {
-		return true
-	}
+	return r.setILMExpiryReplication(ctx, desiredILMExpiry, addError)
+}
 
+func (r *SiteReplicationResource) setILMExpiryReplication(ctx context.Context, enabled bool, addError func(string, string)) bool {
 	info, err := r.client.SiteReplicationInfo(ctx)
 	if err != nil {
-		addError("Unable to Read Site Replication", fmt.Sprintf("RustFS returned an error while reading site replication after configuration: %s", err))
+		addError("Unable to Read Site Replication", fmt.Sprintf("RustFS returned an error while reading site replication: %s", err))
 		return false
 	}
 
 	for _, site := range info.Sites {
-		if site.ReplicateILMExpiry {
-			_, err := r.client.SiteReplicationEdit(ctx, site, srEditOptions{DisableILMExpiryReplication: true})
+		if site.ReplicateILMExpiry != enabled {
+			opts := srEditOptions{DisableILMExpiryReplication: !enabled, EnableILMExpiryReplication: enabled}
+			_, err := r.client.SiteReplicationEdit(ctx, site, opts)
 			if err != nil {
-				addError("Unable to Disable ILM Expiry Replication", fmt.Sprintf("RustFS returned an error while disabling ILM expiry replication: %s", err))
+				addError("Unable to Update ILM Expiry Replication", fmt.Sprintf("RustFS returned an error while updating ILM expiry replication: %s", err))
 				return false
 			}
 			break
@@ -302,7 +304,7 @@ func (r *SiteReplicationResource) peersWithCredentials(
 func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSite, addError func(string, string)) (siteReplicationAddRequest, bool) {
 	resolver, ok := r.client.(peerDeploymentIDResolver)
 	if !ok {
-		return siteReplicationAddRequest{Peers: peers}, true
+		return siteReplicationAddRequest{Peers: peers, RemotePeerCount: len(peers)}, true
 	}
 
 	localInfo, err := r.client.SRMetaInfo(ctx, srStatusOptions{})
@@ -312,10 +314,11 @@ func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSi
 	}
 
 	if localInfo.DeploymentID == "" {
-		return siteReplicationAddRequest{Peers: peers}, true
+		return siteReplicationAddRequest{Peers: peers, RemotePeerCount: len(peers)}, true
 	}
 
 	filtered := make([]peerSite, 0, len(peers))
+	peerByDeploymentID := make(map[string]peerSite, len(peers))
 	var targetSite *peerSite
 	for _, peer := range peers {
 		peerDeploymentID, err := resolver.PeerDeploymentID(ctx, peer)
@@ -333,6 +336,14 @@ func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSi
 			)
 			return siteReplicationAddRequest{}, false
 		}
+		if existingPeer, exists := peerByDeploymentID[peerDeploymentID]; exists {
+			addError(
+				"Duplicate Site Replication Deployment",
+				fmt.Sprintf("Peers %q at %q and %q at %q resolve to the same RustFS deployment. Configure each deployment only once.", existingPeer.Name, existingPeer.Endpoint, peer.Name, peer.Endpoint),
+			)
+			return siteReplicationAddRequest{}, false
+		}
+		peerByDeploymentID[peerDeploymentID] = peer
 
 		if peerDeploymentID == localInfo.DeploymentID {
 			currentBackend := peer
@@ -343,7 +354,15 @@ func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSi
 		filtered = append(filtered, peer)
 	}
 
-	return siteReplicationAddRequest{TargetSite: targetSite, Peers: filtered}, true
+	if targetSite == nil {
+		addError(
+			"Missing Local Site Replication Peer",
+			"Configure `peers` with the RustFS deployment addressed by the provider `endpoint`, as well as at least one remote site.",
+		)
+		return siteReplicationAddRequest{}, false
+	}
+
+	return siteReplicationAddRequest{TargetSite: targetSite, Peers: peers, RemotePeerCount: len(filtered)}, true
 }
 
 func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplicationResourceModel, removeWhenDisabled bool, addError func(string, string)) bool {

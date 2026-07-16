@@ -6,13 +6,18 @@ package provider
 import (
 	datasourceSchema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	resourceSchema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 func siteReplicationPeersResourceAttribute() resourceSchema.Attribute {
 	return resourceSchema.ListNestedAttribute{
-		MarkdownDescription: "Desired RustFS peer sites for site replication. This may include every canonical site in the active-active topology; the provider resolves deployment IDs, omits whichever site is currently serving the provider endpoint, and sends the add request through that site's canonical endpoint when available.",
+		MarkdownDescription: "RustFS sites for site replication. Include every canonical site in the active-active topology, including the deployment addressed by the provider endpoint; the provider resolves deployment IDs, sends the full topology in the request body, and sends the add request through that local site's canonical endpoint.",
 		Required:            true,
+		PlanModifiers: []planmodifier.List{
+			listplanmodifier.RequiresReplace(),
+		},
 		NestedObject: resourceSchema.NestedAttributeObject{
 			Attributes: map[string]resourceSchema.Attribute{
 				"name": resourceSchema.StringAttribute{

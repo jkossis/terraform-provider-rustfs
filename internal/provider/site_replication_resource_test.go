@@ -123,6 +123,30 @@ func TestSiteReplicationConfigureEnablesILMExpiry(t *testing.T) {
 	}
 }
 
+func TestSiteReplicationSetILMExpiryReplicationEnables(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSiteReplicationClient{
+		info: siteReplicationInfo{
+			Sites: []peerInfo{
+				{Name: "site-a", DeploymentID: "site-a", ReplicateILMExpiry: false},
+			},
+		},
+	}
+	resource := &SiteReplicationResource{client: client}
+
+	if !resource.setILMExpiryReplication(context.Background(), true, failError(t)) {
+		t.Fatal("expected ILM expiry replication update to succeed")
+	}
+
+	if len(client.edits) != 1 {
+		t.Fatalf("expected one edit request, got %d", len(client.edits))
+	}
+	if !client.edits[0].EnableILMExpiryReplication || client.edits[0].DisableILMExpiryReplication {
+		t.Fatalf("expected edit request to enable ILM expiry replication, got %#v", client.edits[0])
+	}
+}
+
 func TestSiteReplicationDefaultsPeerCredentialsFromProvider(t *testing.T) {
 	t.Parallel()
 
@@ -222,16 +246,16 @@ func TestSiteReplicationUsesCanonicalCurrentBackendForAdd(t *testing.T) {
 		t.Fatalf("expected canonical add target site-a, got %q", client.addTargetSite.Endpoint)
 	}
 
-	if len(client.addSites) != 1 {
-		t.Fatalf("expected one non-local add site, got %d", len(client.addSites))
+	if len(client.addSites) != 2 {
+		t.Fatalf("expected complete topology in add body, got %d sites", len(client.addSites))
 	}
 
-	if client.addSites[0].Name != "site-b" {
-		t.Fatalf("expected site-b to remain in add body, got %q", client.addSites[0].Name)
+	if client.addSites[0].Name != "site-a" || client.addSites[1].Name != "site-b" {
+		t.Fatalf("expected site-a and site-b in add body, got %#v", client.addSites)
 	}
 }
 
-func TestSiteReplicationAddRequestFiltersCurrentBackendFromAllPeers(t *testing.T) {
+func TestSiteReplicationAddRequestIncludesCurrentBackendInFullTopology(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeSiteReplicationClient{
@@ -259,12 +283,70 @@ func TestSiteReplicationAddRequestFiltersCurrentBackendFromAllPeers(t *testing.T
 		t.Fatalf("expected site-a to be the add target, got %q", addRequest.TargetSite.Name)
 	}
 
-	if len(addRequest.Peers) != 1 {
-		t.Fatalf("expected one non-local peer, got %d", len(addRequest.Peers))
+	if len(addRequest.Peers) != 2 {
+		t.Fatalf("expected complete topology, got %d sites", len(addRequest.Peers))
 	}
 
-	if addRequest.Peers[0].Name != "site-b" {
-		t.Fatalf("expected site-b to remain, got %q", addRequest.Peers[0].Name)
+	if addRequest.Peers[0].Name != "site-a" || addRequest.Peers[1].Name != "site-b" {
+		t.Fatalf("expected site-a and site-b in request, got %#v", addRequest.Peers)
+	}
+
+	if addRequest.RemotePeerCount != 1 {
+		t.Fatalf("expected one remote peer, got %d", addRequest.RemotePeerCount)
+	}
+}
+
+func TestSiteReplicationAddRequestRequiresCurrentBackend(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSiteReplicationClient{
+		metaInfo: srInfo{DeploymentID: "site-a-deployment"},
+		peerDeploymentIDs: map[string]string{
+			"https://site-b.example.com:9000": "site-b-deployment",
+		},
+	}
+	resource := &SiteReplicationResource{client: client}
+	var errorSummary string
+
+	_, ok := resource.addRequest(context.Background(), []peerSite{
+		{Name: "site-b", Endpoint: "https://site-b.example.com:9000"},
+	}, func(summary, _ string) {
+		errorSummary = summary
+	})
+	if ok {
+		t.Fatal("expected addRequest to fail")
+	}
+
+	if errorSummary != "Missing Local Site Replication Peer" {
+		t.Fatalf("expected missing local peer error, got %q", errorSummary)
+	}
+}
+
+func TestSiteReplicationAddRequestRejectsDuplicateDeployments(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSiteReplicationClient{
+		metaInfo: srInfo{DeploymentID: "site-a-deployment"},
+		peerDeploymentIDs: map[string]string{
+			"https://site-a.example.com:9000":       "site-a-deployment",
+			"https://site-a-alias.example.com:9000": "site-a-deployment",
+		},
+	}
+	resource := &SiteReplicationResource{client: client}
+	var errorSummary string
+
+	_, ok := resource.addRequest(context.Background(), []peerSite{
+		{Name: "site-a", Endpoint: "https://site-a.example.com:9000"},
+		{Name: "site-a-alias", Endpoint: "https://site-a-alias.example.com:9000"},
+	}, func(summary, _ string) {
+		errorSummary = summary
+	})
+	if ok {
+		t.Fatal("expected addRequest to fail")
+	}
+
+	if errorSummary != "Duplicate Site Replication Deployment" {
+		t.Fatalf("expected duplicate deployment error, got %q", errorSummary)
 	}
 }
 

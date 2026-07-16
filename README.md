@@ -107,7 +107,7 @@ export RUSTFS_SECRET_KEY="..."
 go test ./internal/provider -run 'TestAccSiteReplication.*DataSource' -v
 ```
 
-Acceptance tests are skipped unless `TF_ACC=1` is set. When `TF_ACC=1` is set, `RUSTFS_ENDPOINT`, `RUSTFS_ACCESS_KEY`, and `RUSTFS_SECRET_KEY` are required. `RUSTFS_INSECURE_SKIP_TLS_VERIFY` may be set when testing against a deployment with untrusted TLS certificates.
+Run the full acceptance suite with `mise run testacc`; it sets `TF_ACC=1`. `RUSTFS_ENDPOINT`, `RUSTFS_ACCESS_KEY`, and `RUSTFS_SECRET_KEY` are required. `RUSTFS_INSECURE_SKIP_TLS_VERIFY` may be set when testing against a deployment with untrusted TLS certificates. Put local credentials in ignored `mise.local.toml` or export them in your shell.
 
 Run the site replication resource acceptance test only against disposable replication test sites. It creates site replication topology and removes all site replication state during destroy:
 

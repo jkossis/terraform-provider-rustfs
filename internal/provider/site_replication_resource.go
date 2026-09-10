@@ -175,6 +175,23 @@ func (r *SiteReplicationResource) Delete(ctx context.Context, req resource.Delet
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if !r.recoverImportedPeers(ctx, &data, data.Sites, resp.Diagnostics.AddError) {
+		return
+	}
+	peers, ok := r.configuredPeers(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError)
+	if !ok {
+		return
+	}
+	if len(peers) == 0 {
+		resp.Diagnostics.AddError("Missing Site Replication Peers", "Cannot remove replication without peer endpoints to verify the result. Refresh or re-import the existing topology first.")
+		return
+	}
+	// Persist recovered import endpoints before a removal can clear the
+	// coordinator's membership map, including when removal only partly succeeds.
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	_, err := r.client.SiteReplicationRemove(ctx, srRemoveReq{RemoveAll: true})
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Remove Site Replication", fmt.Sprintf("RustFS returned an error while removing site replication: %s", err))
@@ -421,6 +438,10 @@ func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplica
 		return false
 	}
 
+	if !r.recoverImportedPeers(ctx, data, sites, addError) {
+		return false
+	}
+
 	data.ID = types.StringValue(siteReplicationResourceID)
 	data.Enabled = types.BoolValue(info.Enabled)
 	data.ServiceAccountAccessKey = nullableString(info.ServiceAccountAccessKey)
@@ -428,6 +449,50 @@ func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplica
 	data.Sites = sites
 
 	return !removeWhenDisabled || replicationConfigured(info)
+}
+
+// Imports have no configured peers. Recover them from the saved topology
+// before refresh overwrites it, or from the first successful import read.
+func (r *SiteReplicationResource) recoverImportedPeers(ctx context.Context, data *siteReplicationResourceModel, currentSites types.List, addError func(string, string)) bool {
+	if !data.Peers.IsNull() {
+		return true
+	}
+	knownSites := data.Sites
+	if knownSites.IsNull() || knownSites.IsUnknown() || len(knownSites.Elements()) == 0 {
+		knownSites = currentSites
+	}
+	var sites []siteReplicationSiteModel
+	diags := knownSites.ElementsAs(ctx, &sites, false)
+	if diags.HasError() {
+		for _, diagnostic := range diags {
+			addError(diagnostic.Summary(), diagnostic.Detail())
+		}
+		return false
+	}
+	if len(sites) == 0 {
+		addError("Missing Imported Site Replication Peers", "No peer endpoints are available from the imported topology. Restore access to a configured site and refresh or re-import before removing replication.")
+		return false
+	}
+	peers := make([]siteReplicationPeerConfigModel, 0, len(sites))
+	for _, site := range sites {
+		if _, _, err := normalizeEndpoint(site.Endpoint.ValueString()); err != nil {
+			addError("Invalid Imported Site Replication Endpoint", fmt.Sprintf("Cannot recover peer %q: %s", site.Name.ValueString(), err))
+			return false
+		}
+		peers = append(peers, siteReplicationPeerConfigModel{
+			Name: site.Name, Endpoint: site.Endpoint,
+			AccessKey: types.StringNull(), SecretKey: types.StringNull(),
+		})
+	}
+	value, diags := types.ListValueFrom(ctx, data.Peers.ElementType(ctx), peers)
+	if diags.HasError() {
+		for _, diagnostic := range diags {
+			addError(diagnostic.Summary(), diagnostic.Detail())
+		}
+		return false
+	}
+	data.Peers = value
+	return true
 }
 
 func replicationConfigured(info siteReplicationInfo) bool {

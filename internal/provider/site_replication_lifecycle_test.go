@@ -294,3 +294,166 @@ func TestSiteReplicationCreateRejectsMissingLocalIdentity(t *testing.T) {
 		}
 	})
 }
+
+func importTestReplication(t *testing.T, r *SiteReplicationResource, plan tfsdk.Plan) tfsdk.State {
+	t.Helper()
+	resp := resource.ImportStateResponse{State: tfsdk.State{Schema: plan.Schema, Raw: tftypes.NewValue(plan.Raw.Type(), nil)}}
+	r.ImportState(t.Context(), resource.ImportStateRequest{ID: siteReplicationResourceID}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatal(resp.Diagnostics)
+	}
+	read := resource.ReadResponse{State: resp.State}
+	r.Read(t.Context(), resource.ReadRequest{State: resp.State}, &read)
+	if read.Diagnostics.HasError() || read.State.Raw.IsNull() {
+		t.Fatalf("import refresh failed: %v", read.Diagnostics)
+	}
+	return read.State
+}
+
+func TestSiteReplicationImportedRemoval(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial=%t", partial), func(t *testing.T) {
+			f, r, plan := newReplicationTestCluster(t)
+			f.change(func() { f.enable(false) })
+			state := importTestReplication(t, r, plan)
+			f.change(func() {
+				if partial {
+					f.afterRemove = func() { f.infos[2] = siteReplicationInfo{Enabled: true} }
+				}
+			})
+			deleted := resource.DeleteResponse{State: state}
+			r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+			if !partial {
+				if deleted.Diagnostics.HasError() {
+					t.Fatal(deleted.Diagnostics)
+				}
+				return
+			}
+			if !strings.Contains(fmt.Sprint(deleted.Diagnostics), "Incomplete Site Replication Removal") {
+				t.Fatalf("remote topology was not checked: %v", deleted.Diagnostics)
+			}
+			for range 2 {
+				read := resource.ReadResponse{State: deleted.State}
+				r.Read(t.Context(), resource.ReadRequest{State: deleted.State}, &read)
+				if read.Diagnostics.HasError() || read.State.Raw.IsNull() {
+					t.Fatalf("lost imported ownership: %v", read.Diagnostics)
+				}
+				deleted.State = read.State
+			}
+			f.change(func() { f.infoUnavailable = 2 })
+			unavailable := resource.ReadResponse{State: deleted.State}
+			r.Read(t.Context(), resource.ReadRequest{State: deleted.State}, &unavailable)
+			if !unavailable.Diagnostics.HasError() || !unavailable.State.Raw.Equal(deleted.State.Raw) {
+				t.Fatal("unavailable imported peer lost resource ownership")
+			}
+			f.change(func() { f.infoUnavailable = -1; f.afterRemove = nil })
+			retry := resource.DeleteResponse{State: deleted.State}
+			r.Delete(t.Context(), resource.DeleteRequest{State: deleted.State}, &retry)
+			if retry.Diagnostics.HasError() {
+				t.Fatal(retry.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestSiteReplicationLegacyImportPreservesPeersBeforeRefresh(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	created := createTestReplication(t, r, plan)
+	if created.Diagnostics.HasError() {
+		t.Fatal(created.Diagnostics)
+	}
+	state := created.State
+	var data siteReplicationResourceModel
+	if diags := state.Get(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	data.Peers = types.ListNull(data.Peers.ElementType(t.Context()))
+	if diags := state.Set(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	f.change(func() { f.infos[0] = siteReplicationInfo{}; f.infos[1] = siteReplicationInfo{} })
+	for range 2 {
+		read := resource.ReadResponse{State: state}
+		r.Read(t.Context(), resource.ReadRequest{State: state}, &read)
+		if read.Diagnostics.HasError() || read.State.Raw.IsNull() {
+			t.Fatalf("lost saved import endpoints: %v", read.Diagnostics)
+		}
+		state = read.State
+	}
+	f.change(func() { f.infos[2] = siteReplicationInfo{} })
+	read := resource.ReadResponse{State: state}
+	r.Read(t.Context(), resource.ReadRequest{State: state}, &read)
+	if read.Diagnostics.HasError() || !read.State.Raw.IsNull() {
+		t.Fatalf("confirmed removal not reflected: %v", read.Diagnostics)
+	}
+}
+
+func TestSiteReplicationDeleteRejectsImportWithoutEndpointsBeforeMutation(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	f.change(func() { f.enable(false) })
+	imported := resource.ImportStateResponse{State: tfsdk.State{Schema: plan.Schema, Raw: tftypes.NewValue(plan.Raw.Type(), nil)}}
+	r.ImportState(t.Context(), resource.ImportStateRequest{ID: siteReplicationResourceID}, &imported)
+	deleted := resource.DeleteResponse{State: imported.State}
+	r.Delete(t.Context(), resource.DeleteRequest{State: imported.State}, &deleted)
+	if !deleted.Diagnostics.HasError() {
+		t.Fatal("missing endpoint evidence accepted")
+	}
+	f.change(func() {
+		if !f.infos[0].Enabled {
+			t.Fatal("topology was mutated before discovering missing endpoints")
+		}
+	})
+}
+
+func TestSiteReplicationDeleteRecoversLegacyImport(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	state := createTestReplication(t, r, plan).State
+	var data siteReplicationResourceModel
+	if diags := state.Get(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	data.Peers = types.ListNull(data.Peers.ElementType(t.Context()))
+	if diags := state.Set(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	f.change(func() { f.afterRemove = func() { f.infos[2] = siteReplicationInfo{Enabled: true} } })
+	deleted := resource.DeleteResponse{State: state}
+	r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+	if !strings.Contains(fmt.Sprint(deleted.Diagnostics), "Incomplete Site Replication Removal") {
+		t.Fatal(deleted.Diagnostics)
+	}
+	if diags := deleted.State.Get(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	if data.Peers.IsNull() || len(data.Peers.Elements()) != 3 {
+		t.Fatal("delete failed to persist recovered endpoints")
+	}
+}
+
+func TestSiteReplicationDeleteRejectsInvalidImportedEndpoint(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	state := createTestReplication(t, r, plan).State
+	var data siteReplicationResourceModel
+	if diags := state.Get(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	data.Peers = types.ListNull(data.Peers.ElementType(t.Context()))
+	sites, diags := peerInfoListValue(t.Context(), []peerInfo{{Name: "invalid", Endpoint: ""}})
+	if diags.HasError() {
+		t.Fatal(diags)
+	}
+	data.Sites = sites
+	if diags := state.Set(t.Context(), &data); diags.HasError() {
+		t.Fatal(diags)
+	}
+	deleted := resource.DeleteResponse{State: state}
+	r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+	if !strings.Contains(fmt.Sprint(deleted.Diagnostics), "Invalid Imported Site Replication Endpoint") {
+		t.Fatal(deleted.Diagnostics)
+	}
+	f.change(func() {
+		if !f.infos[0].Enabled {
+			t.Fatal("invalid imported endpoint did not block removal")
+		}
+	})
+}

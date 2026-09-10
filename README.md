@@ -75,6 +75,8 @@ Import uses the fixed singleton ID `site-replication`:
 terraform import rustfs_site_replication.example site-replication
 ```
 
+Import recovers and retains peer names and endpoints from the reported topology, using the provider credentials for direct checks. A refresh also recovers endpoints from older imported state before replacing its reported `sites`. Review the recovered peer order and any per-site credentials against your configuration before applying; changes to `peers` require replacement. Missing endpoint information prevents removal before any mutation.
+
 ### Incomplete operations and recovery
 
 An HTTP 200 response is not sufficient for success. The provider checks add/edit success flags and error details, reports `initialSyncErrorMessage` as an error even when add reports `success: true`, and requires the documented successful remove status. Unknown or partial remove results remain errors. Creation refuses already configured sites or pending operations; import an existing topology instead of creating a second owner.

@@ -25,6 +25,7 @@ type siteReplicationAdminClient interface {
 	SiteReplicationInfo(context.Context) (siteReplicationInfo, error)
 	SiteReplicationInfoFromPeer(context.Context, peerSite) (siteReplicationInfo, error)
 	SiteReplicationRemove(context.Context, srRemoveReq) (replicateRemoveStatus, error)
+	SiteReplicationRemoveFromPeer(context.Context, peerSite, srRemoveReq) (replicateRemoveStatus, error)
 	SRMetaInfo(context.Context, srStatusOptions) (srInfo, error)
 	SRStatusInfo(context.Context, srStatusOptions) (srStatusInfo, error)
 }
@@ -207,6 +208,14 @@ func (c *rustfsClient) SiteReplicationInfoFromPeer(ctx context.Context, site pee
 		return siteReplicationInfo{}, err
 	}
 	return peerClient.SiteReplicationInfo(ctx)
+}
+
+func (c *rustfsClient) SiteReplicationRemoveFromPeer(ctx context.Context, site peerSite, removeReq srRemoveReq) (replicateRemoveStatus, error) {
+	peerClient, err := c.peerClient(site)
+	if err != nil {
+		return replicateRemoveStatus{}, err
+	}
+	return peerClient.SiteReplicationRemove(ctx, removeReq)
 }
 
 func (c *rustfsClient) SiteReplicationPeerCredentials() (string, string) {

@@ -31,6 +31,7 @@ type replicationTestCluster struct {
 	afterAdd, afterEdit, afterRemove func()
 	infoUnavailable                  int
 	adds                             int
+	removes                          []int
 }
 
 func newReplicationTestCluster(t *testing.T) (*replicationTestCluster, *SiteReplicationResource, tfsdk.Plan) {
@@ -80,9 +81,17 @@ func newReplicationTestCluster(t *testing.T) (*replicationTestCluster, *SiteRepl
 				}
 				_, _ = w.Write([]byte(f.editReply))
 			case "/remove":
-				for observer := range f.infos {
-					f.infos[observer] = siteReplicationInfo{}
+				f.removes = append(f.removes, i)
+				// A cleared site no longer knows how to notify other sites.
+				known := f.infos[i].Sites
+				for _, peer := range known {
+					for observer, id := range f.ids {
+						if peer.DeploymentID == id {
+							f.infos[observer] = siteReplicationInfo{}
+						}
+					}
 				}
+				f.infos[i] = siteReplicationInfo{}
 				if f.afterRemove != nil {
 					f.afterRemove()
 				}
@@ -454,6 +463,107 @@ func TestSiteReplicationDeleteRejectsInvalidImportedEndpoint(t *testing.T) {
 	f.change(func() {
 		if !f.infos[0].Enabled {
 			t.Fatal("invalid imported endpoint did not block removal")
+		}
+	})
+}
+
+func TestSiteReplicationRemovalRetryUsesSurvivingPeer(t *testing.T) {
+	for _, imported := range []bool{false, true} {
+		t.Run(fmt.Sprintf("imported=%t", imported), func(t *testing.T) {
+			f, r, plan := newReplicationTestCluster(t)
+			state := createTestReplication(t, r, plan).State
+			if imported {
+				state = importTestReplication(t, r, plan)
+			}
+			f.change(func() {
+				survivor := f.infos[2]
+				f.removeReply = `{"status":"Partial","errorDetail":"peer notification failed"}`
+				f.afterRemove = func() { f.infos[2] = survivor }
+			})
+			partial := resource.DeleteResponse{State: state}
+			r.Delete(t.Context(), resource.DeleteRequest{State: state}, &partial)
+			if !partial.Diagnostics.HasError() || partial.State.Raw.IsNull() {
+				t.Fatalf("expected owned partial removal: %v", partial.Diagnostics)
+			}
+			read := resource.ReadResponse{State: partial.State}
+			r.Read(t.Context(), resource.ReadRequest{State: partial.State}, &read)
+			if read.Diagnostics.HasError() || read.State.Raw.IsNull() {
+				t.Fatal(read.Diagnostics)
+			}
+			f.change(func() {
+				f.removeReply = `{"status":"Requested site(s) were removed from cluster replication successfully."}`
+				f.afterRemove = nil
+			})
+			retry := resource.DeleteResponse{State: read.State}
+			r.Delete(t.Context(), resource.DeleteRequest{State: read.State}, &retry)
+			if retry.Diagnostics.HasError() {
+				t.Fatalf("retry did not remove surviving peer: %v", retry.Diagnostics)
+			}
+			f.change(func() {
+				if len(f.removes) != 2 || f.removes[0] != 0 || f.removes[1] != 2 {
+					t.Fatalf("expected coordinator then surviving peer, got %v", f.removes)
+				}
+			})
+		})
+	}
+}
+
+func TestSiteReplicationDeleteAlreadyAbsentDoesNotMutate(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	state := createTestReplication(t, r, plan).State
+	f.change(func() {
+		for i := range f.infos {
+			f.infos[i] = siteReplicationInfo{}
+		}
+	})
+	deleted := resource.DeleteResponse{State: state}
+	r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+	if deleted.Diagnostics.HasError() {
+		t.Fatal(deleted.Diagnostics)
+	}
+	f.change(func() {
+		if len(f.removes) != 0 {
+			t.Fatalf("unnecessary mutation after confirmed absence: %v", f.removes)
+		}
+	})
+}
+
+func TestSiteReplicationDeletePendingPeer(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	state := createTestReplication(t, r, plan).State
+	f.change(func() {
+		for i := range f.infos {
+			f.infos[i] = siteReplicationInfo{}
+		}
+		f.infos[2].PendingOperation = &srPendingOperation{Operation: "remove"}
+	})
+	deleted := resource.DeleteResponse{State: state}
+	r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+	if deleted.Diagnostics.HasError() {
+		t.Fatal(deleted.Diagnostics)
+	}
+	f.change(func() {
+		if len(f.removes) != 1 || f.removes[0] != 2 {
+			t.Fatalf("pending operation was not retried through its owner: %v", f.removes)
+		}
+	})
+}
+
+func TestSiteReplicationDeleteUnavailablePeerRetainsOwnership(t *testing.T) {
+	f, r, plan := newReplicationTestCluster(t)
+	state := createTestReplication(t, r, plan).State
+	f.change(func() {
+		f.infos[0] = siteReplicationInfo{}
+		f.infoUnavailable = 1
+	})
+	deleted := resource.DeleteResponse{State: state}
+	r.Delete(t.Context(), resource.DeleteRequest{State: state}, &deleted)
+	if !deleted.Diagnostics.HasError() || !deleted.State.Raw.Equal(state.Raw) {
+		t.Fatalf("unavailable peer lost ownership: %v", deleted.Diagnostics)
+	}
+	f.change(func() {
+		if len(f.removes) != 0 {
+			t.Fatalf("unexpected mutation after failed peer check: %v", f.removes)
 		}
 	})
 }

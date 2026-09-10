@@ -192,10 +192,22 @@ func (r *SiteReplicationResource) Delete(ctx context.Context, req resource.Delet
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	_, err := r.client.SiteReplicationRemove(ctx, srRemoveReq{RemoveAll: true})
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to Remove Site Replication", fmt.Sprintf("RustFS returned an error while removing site replication: %s", err))
-		return
+	// A partial removal can clear the coordinator's membership map first.
+	// Retry through a retained peer that still owns replication state.
+	for _, peer := range peers {
+		info, err := r.client.SiteReplicationInfoFromPeer(ctx, peer)
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to Read Site Replication Peer", fmt.Sprintf("Cannot check peer %q before removing replication: %s", peer.Name, err))
+			return
+		}
+		if !replicationConfigured(info) {
+			continue
+		}
+		if _, err := r.client.SiteReplicationRemoveFromPeer(ctx, peer, srRemoveReq{RemoveAll: true}); err != nil {
+			resp.Diagnostics.AddError("Unable to Remove Site Replication", fmt.Sprintf("RustFS returned an error while removing site replication through peer %q: %s", peer.Name, err))
+			return
+		}
+		break
 	}
 	if !r.replicationAbsent(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError) && !resp.Diagnostics.HasError() {
 		resp.Diagnostics.AddError("Incomplete Site Replication Removal", "RustFS still reports replication configuration on at least one site. Resource ownership is retained; retry removal after resolving the pending operation.")

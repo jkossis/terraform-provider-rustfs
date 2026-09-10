@@ -52,6 +52,10 @@ func (f *fakeSiteReplicationClient) SiteReplicationRemove(context.Context, srRem
 	return replicateRemoveStatus{}, nil
 }
 
+func (f *fakeSiteReplicationClient) SiteReplicationRemoveFromPeer(ctx context.Context, _ peerSite, req srRemoveReq) (replicateRemoveStatus, error) {
+	return f.SiteReplicationRemove(ctx, req)
+}
+
 func (f *fakeSiteReplicationClient) SRMetaInfo(context.Context, srStatusOptions) (srInfo, error) {
 	if f.metaInfo.DeploymentID == "" {
 		return srInfo{DeploymentID: "site-a-deployment"}, nil

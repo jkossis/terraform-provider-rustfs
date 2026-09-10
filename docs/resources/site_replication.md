@@ -3,12 +3,12 @@
 page_title: "rustfs_site_replication Resource - rustfs"
 subcategory: ""
 description: |-
-  Manages RustFS site replication topology. Configure peers with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read sites for the topology RustFS reports after configuration.
+  Manages RustFS site replication topology. Configure peers with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read sites for the topology RustFS reports after configuration. Creation and updates verify membership and ILM expiry settings directly on every configured site. Incomplete operations return errors and retain resource ownership after a mutating request; failed creations are tainted, so review the replacement plan before retrying.
 ---
 
 # rustfs_site_replication (Resource)
 
-Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration.
+Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration. Creation and updates verify membership and ILM expiry settings directly on every configured site. Incomplete operations return errors and retain resource ownership after a mutating request; failed creations are tainted, so review the replacement plan before retrying.
 
 ## Example Usage
 

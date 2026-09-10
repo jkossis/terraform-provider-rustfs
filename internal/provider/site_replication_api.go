@@ -56,13 +56,18 @@ type replicateRemoveStatus struct {
 	APIVersion string `json:"apiVersion,omitempty"`
 }
 
+type srPendingOperation struct {
+	Operation string `json:"operation"`
+}
+
 type siteReplicationInfo struct {
-	Enabled                 bool       `json:"enabled"`
-	Name                    string     `json:"name,omitempty"`
-	Sites                   []peerInfo `json:"sites,omitempty"`
-	ServiceAccountAccessKey string     `json:"serviceAccountAccessKey,omitempty"`
-	APIVersion              string     `json:"apiVersion,omitempty"`
-	RawJSON                 []byte     `json:"-"`
+	Enabled                 bool                `json:"enabled"`
+	Name                    string              `json:"name,omitempty"`
+	Sites                   []peerInfo          `json:"sites,omitempty"`
+	ServiceAccountAccessKey string              `json:"serviceAccountAccessKey,omitempty"`
+	PendingOperation        *srPendingOperation `json:"pendingOperation,omitempty"`
+	APIVersion              string              `json:"apiVersion,omitempty"`
+	RawJSON                 []byte              `json:"-"`
 }
 
 func (i *siteReplicationInfo) setRawJSON(data []byte) {

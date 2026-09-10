@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -51,7 +52,7 @@ func (r *SiteReplicationResource) Metadata(ctx context.Context, req resource.Met
 
 func (r *SiteReplicationResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration.",
+		MarkdownDescription: "Manages RustFS site replication topology. Configure `peers` with every RustFS site in the topology, including the deployment addressed by the provider endpoint; read `sites` for the topology RustFS reports after configuration. Creation and updates verify membership and ILM expiry settings directly on every configured site. Incomplete operations return errors and retain resource ownership after a mutating request; failed creations are tainted, so review the replacement plan before retrying.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -99,15 +100,24 @@ func (r *SiteReplicationResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	if !r.configureReplication(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError) {
-		return
+	// Computed values must be known (or null) even when the server mutates
+	// topology and then returns an error, or the follow-up read fails.
+	data.ID = types.StringNull()
+	data.Sites = types.ListNull(siteReplicationSiteObjectType)
+	data.Enabled = types.BoolNull()
+	data.ServiceAccountAccessKey = types.StringNull()
+	data.APIVersion = types.StringNull()
+	configured := r.configureReplication(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError)
+	if data.ID.IsNull() {
+		return // Validation/preflight failed before a mutating request.
 	}
 
-	data.ID = types.StringValue(siteReplicationResourceID)
-	if !r.refresh(ctx, &data, false, resp.Diagnostics.AddError) {
-		return
+	refreshed := r.refresh(ctx, &data, false, resp.Diagnostics.AddError)
+	if configured && refreshed {
+		r.verifyMembership(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError)
 	}
-
+	// An add error can follow a committed join. Return ownership alongside
+	// the diagnostic so the next operation cannot forget the partial topology.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -119,14 +129,24 @@ func (r *SiteReplicationResource) Read(ctx context.Context, req resource.ReadReq
 	}
 
 	if !r.refresh(ctx, &data, true, resp.Diagnostics.AddError) {
-		resp.State.RemoveResource(ctx)
-		return
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		absent := r.replicationAbsent(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if absent {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *SiteReplicationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	resp.State = req.State
 	var data siteReplicationResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -142,14 +162,26 @@ func (r *SiteReplicationResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
+	if !r.verifyMembership(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError) {
+		return
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *SiteReplicationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data siteReplicationResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	_, err := r.client.SiteReplicationRemove(ctx, srRemoveReq{RemoveAll: true})
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Remove Site Replication", fmt.Sprintf("RustFS returned an error while removing site replication: %s", err))
 		return
+	}
+	if !r.replicationAbsent(ctx, &data, resp.Diagnostics.AddAttributeError, resp.Diagnostics.AddError) && !resp.Diagnostics.HasError() {
+		resp.Diagnostics.AddError("Incomplete Site Replication Removal", "RustFS still reports replication configuration on at least one site. Resource ownership is retained; retry removal after resolving the pending operation.")
 	}
 }
 
@@ -171,21 +203,12 @@ func (r *SiteReplicationResource) configureReplication(
 	addAttributeError func(path.Path, string, string),
 	addError func(string, string),
 ) bool {
-	configuredPeers, diags := peerSitesFromList(ctx, data.Peers)
-	if diags.HasError() {
-		for _, diagnostic := range diags {
-			addError(diagnostic.Summary(), diagnostic.Detail())
-		}
+	configuredPeers, ok := r.configuredPeers(ctx, data, addAttributeError, addError)
+	if !ok {
 		return false
 	}
-
 	if len(configuredPeers) == 0 {
 		addAttributeError(path.Root("peers"), "Missing Site Replication Peers", "Configure at least one desired peer site.")
-		return false
-	}
-
-	configuredPeers, ok := r.peersWithCredentials(configuredPeers, addAttributeError, addError)
-	if !ok {
 		return false
 	}
 
@@ -203,6 +226,8 @@ func (r *SiteReplicationResource) configureReplication(
 		return false
 	}
 
+	// From this point even a transport failure may follow a server-side commit.
+	data.ID = types.StringValue(siteReplicationResourceID)
 	desiredILMExpiry := data.ReplicateILMExpiry.ValueBool()
 	err := r.siteReplicationAdd(ctx, addRequest, srAddOptions{ReplicateILMExpiry: desiredILMExpiry})
 	if err != nil {
@@ -220,15 +245,14 @@ func (r *SiteReplicationResource) setILMExpiryReplication(ctx context.Context, e
 		return false
 	}
 
-	for _, site := range info.Sites {
-		if site.ReplicateILMExpiry != enabled {
-			opts := srEditOptions{DisableILMExpiryReplication: !enabled, EnableILMExpiryReplication: enabled}
-			_, err := r.client.SiteReplicationEdit(ctx, site, opts)
-			if err != nil {
-				addError("Unable to Update ILM Expiry Replication", fmt.Sprintf("RustFS returned an error while updating ILM expiry replication: %s", err))
-				return false
-			}
-			break
+	if len(info.Sites) > 0 {
+		// This is a group-wide operation. Replay it even if this endpoint
+		// already agrees: a previous attempt may have missed a remote site.
+		opts := srEditOptions{DisableILMExpiryReplication: !enabled, EnableILMExpiryReplication: enabled}
+		_, err := r.client.SiteReplicationEdit(ctx, info.Sites[0], opts)
+		if err != nil {
+			addError("Unable to Update ILM Expiry Replication", fmt.Sprintf("RustFS returned an error while updating ILM expiry replication: %s", err))
+			return false
 		}
 	}
 
@@ -304,7 +328,8 @@ func (r *SiteReplicationResource) peersWithCredentials(
 func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSite, addError func(string, string)) (siteReplicationAddRequest, bool) {
 	resolver, ok := r.client.(peerDeploymentIDResolver)
 	if !ok {
-		return siteReplicationAddRequest{Peers: peers, RemotePeerCount: len(peers)}, true
+		addError("Unable to Identify Site Replication Peers", "The client cannot resolve peer deployment IDs. No replication changes were requested.")
+		return siteReplicationAddRequest{}, false
 	}
 
 	localInfo, err := r.client.SRMetaInfo(ctx, srStatusOptions{})
@@ -313,8 +338,14 @@ func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSi
 		return siteReplicationAddRequest{}, false
 	}
 
+	if localInfo.Enabled || len(localInfo.State.Peers) != 0 {
+		addError("Site Replication Already Configured", "The provider endpoint already has site replication state. Import the existing topology with ID site-replication before managing it.")
+		return siteReplicationAddRequest{}, false
+	}
+
 	if localInfo.DeploymentID == "" {
-		return siteReplicationAddRequest{Peers: peers, RemotePeerCount: len(peers)}, true
+		addError("Unable to Identify Local Site", "RustFS did not return a deployment ID for the provider endpoint. No replication changes were requested.")
+		return siteReplicationAddRequest{}, false
 	}
 
 	filtered := make([]peerSite, 0, len(peers))
@@ -345,6 +376,16 @@ func (r *SiteReplicationResource) addRequest(ctx context.Context, peers []peerSi
 		}
 		peerByDeploymentID[peerDeploymentID] = peer
 
+		info, err := r.client.SiteReplicationInfoFromPeer(ctx, peer)
+		if err != nil {
+			addError("Unable to Read Site Replication Peer", fmt.Sprintf("Cannot check peer %q before creating replication: %s", peer.Name, err))
+			return siteReplicationAddRequest{}, false
+		}
+		if replicationConfigured(info) {
+			addError("Site Replication Already Configured", fmt.Sprintf("Peer %q already has replication state or a pending operation. Import the existing topology with ID site-replication before managing it.", peer.Name))
+			return siteReplicationAddRequest{}, false
+		}
+
 		if peerDeploymentID == localInfo.DeploymentID {
 			currentBackend := peer
 			targetSite = &currentBackend
@@ -372,10 +413,6 @@ func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplica
 		return false
 	}
 
-	if removeWhenDisabled && !info.Enabled {
-		return false
-	}
-
 	sites, diags := peerInfoListValue(ctx, info.Sites)
 	if diags.HasError() {
 		for _, diagnostic := range diags {
@@ -390,5 +427,103 @@ func (r *SiteReplicationResource) refresh(ctx context.Context, data *siteReplica
 	data.APIVersion = nullableString(info.APIVersion)
 	data.Sites = sites
 
+	return !removeWhenDisabled || replicationConfigured(info)
+}
+
+func replicationConfigured(info siteReplicationInfo) bool {
+	return info.Enabled || len(info.Sites) != 0 || info.PendingOperation != nil
+}
+
+func (r *SiteReplicationResource) configuredPeers(ctx context.Context, data *siteReplicationResourceModel, addAttributeError func(path.Path, string, string), addError func(string, string)) ([]peerSite, bool) {
+	peers, diags := peerSitesFromList(ctx, data.Peers)
+	if diags.HasError() {
+		for _, diagnostic := range diags {
+			addError(diagnostic.Summary(), diagnostic.Detail())
+		}
+		return nil, false
+	}
+	return r.peersWithCredentials(peers, addAttributeError, addError)
+}
+
+func (r *SiteReplicationResource) replicationAbsent(ctx context.Context, data *siteReplicationResourceModel, addAttributeError func(path.Path, string, string), addError func(string, string)) bool {
+	info, err := r.client.SiteReplicationInfo(ctx)
+	if err != nil {
+		addError("Unable to Read Site Replication", fmt.Sprintf("Cannot confirm replication removal: %s", err))
+		return false
+	}
+	if replicationConfigured(info) {
+		return false
+	}
+	peers, ok := r.configuredPeers(ctx, data, addAttributeError, addError)
+	if !ok {
+		return false
+	}
+	for _, peer := range peers {
+		info, err := r.client.SiteReplicationInfoFromPeer(ctx, peer)
+		if err != nil {
+			addError("Unable to Read Site Replication Peer", fmt.Sprintf("Cannot confirm replication removal on peer %q: %s", peer.Name, err))
+			return false
+		}
+		if replicationConfigured(info) {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *SiteReplicationResource) verifyMembership(ctx context.Context, data *siteReplicationResourceModel, addAttributeError func(path.Path, string, string), addError func(string, string)) bool {
+	peers, ok := r.configuredPeers(ctx, data, addAttributeError, addError)
+	if !ok {
+		return false
+	}
+	if len(peers) < 2 {
+		addError("Unable to Verify Site Replication", "Configure at least two canonical peer sites to verify replication membership.")
+		return false
+	}
+
+	resolver, ok := r.client.(peerDeploymentIDResolver)
+	if !ok {
+		addError("Unable to Verify Site Replication", "The client cannot resolve peer deployment IDs.")
+		return false
+	}
+	expected := make(map[string]peerSite, len(peers))
+	for _, peer := range peers {
+		id, err := resolver.PeerDeploymentID(ctx, peer)
+		if err != nil || id == "" {
+			addError("Unable to Verify Site Replication", fmt.Sprintf("Cannot identify peer %q: deployment ID %q, error: %v", peer.Name, id, err))
+			return false
+		}
+		if _, duplicate := expected[id]; duplicate {
+			addError("Unable to Verify Site Replication", "Configured peers resolve to duplicate deployment IDs.")
+			return false
+		}
+		expected[id] = peer
+	}
+	for _, observer := range peers {
+		info, err := r.client.SiteReplicationInfoFromPeer(ctx, observer)
+		if err != nil {
+			addError("Unable to Verify Site Replication", fmt.Sprintf("Cannot read peer %q directly: %s", observer.Name, err))
+			return false
+		}
+		if !info.Enabled || info.PendingOperation != nil || len(info.Sites) != len(expected) {
+			addError("Incomplete Site Replication", fmt.Sprintf("Peer %q reports disabled replication, a pending operation, or an incomplete membership list.", observer.Name))
+			return false
+		}
+		seen := make(map[string]bool, len(expected))
+		for _, stored := range info.Sites {
+			want, exists := expected[stored.DeploymentID]
+			host, secure, endpointErr := normalizeEndpoint(stored.Endpoint)
+			wantHost, wantSecure, wantErr := normalizeEndpoint(want.Endpoint)
+			if !exists || seen[stored.DeploymentID] || stored.Name != want.Name || endpointErr != nil || wantErr != nil || !strings.EqualFold(host, wantHost) || secure != wantSecure {
+				addError("Inconsistent Site Replication Membership", fmt.Sprintf("Peer %q reports unexpected identity or endpoint for site %q (deployment ID %q). Verify each site's actual deployment ID and repair the server topology before retrying.", observer.Name, stored.Name, stored.DeploymentID))
+				return false
+			}
+			if stored.ReplicateILMExpiry != data.ReplicateILMExpiry.ValueBool() {
+				addError("Incomplete ILM Expiry Replication Update", fmt.Sprintf("Peer %q still reports a different ILM expiry setting for site %q.", observer.Name, stored.Name))
+				return false
+			}
+			seen[stored.DeploymentID] = true
+		}
+	}
 	return true
 }

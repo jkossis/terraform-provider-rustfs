@@ -65,7 +65,7 @@ resource "rustfs_site_replication" "example" {
 }
 ```
 
-The `peers` list is the desired set of RustFS peer sites for replication. It can include every canonical site in the active-active topology. This supports configuring the provider with a VIP endpoint that may route to any site. Before configuring replication, the provider identifies the site currently serving the provider endpoint, omits that site from the RustFS add request, and sends the add request through that site's canonical endpoint when available.
+The `peers` list must include every canonical site in the topology, including the deployment behind the provider endpoint. The provider resolves deployment IDs, sends the full topology in the add request, and uses that backend site's canonical endpoint. After creation and updates, it reads every canonical site directly and checks membership, actual deployment IDs, endpoints, names, and ILM expiry settings. A correct response from a VIP or the coordinator alone does not prove convergence.
 
 By default, Terraform uses the provider `access_key` and `secret_key` for each peer. To use different credentials for a specific peer, set both `access_key` and `secret_key` on that peer.
 
@@ -74,6 +74,14 @@ Import uses the fixed singleton ID `site-replication`:
 ```shell
 terraform import rustfs_site_replication.example site-replication
 ```
+
+### Incomplete operations and recovery
+
+An HTTP 200 response is not sufficient for success. The provider checks add/edit success flags and error details, reports `initialSyncErrorMessage` as an error even when add reports `success: true`, and requires the documented successful remove status. Unknown or partial remove results remain errors. Creation refuses already configured sites or pending operations; import an existing topology instead of creating a second owner.
+
+Once an add request may have changed a site, an error retains the singleton ID and peer configuration in state, even if the follow-up read fails. OpenTofu/Terraform marks failed creations as **tainted** and normally proposes destroying and recreating the replication topology on the next apply. Review that plan before retrying. To preserve an existing topology, repair and verify it directly on every site first, then explicitly clear the taint only after confirming the configuration is complete; removing state would lose ownership. A failed ILM update retains the previous state so the next apply retries the group-wide change.
+
+Reads do not remove state on connection errors, a locally disabled site with a pending operation, or while another configured peer still has replication state. Removal must be confirmed on every configured peer. An unavailable peer blocks that confirmation; resolve connectivity or the pending server operation and retry. These checks establish configuration agreement, not object or metadata parity. An initial-sync error still requires investigation even when membership agrees.
 
 ## Data Sources
 

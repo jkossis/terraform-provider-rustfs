@@ -23,7 +23,9 @@ type siteReplicationAdminClient interface {
 	SiteReplicationAdd(context.Context, []peerSite, srAddOptions) (replicateAddStatus, error)
 	SiteReplicationEdit(context.Context, peerInfo, srEditOptions) (replicateEditStatus, error)
 	SiteReplicationInfo(context.Context) (siteReplicationInfo, error)
+	SiteReplicationInfoFromPeer(context.Context, peerSite) (siteReplicationInfo, error)
 	SiteReplicationRemove(context.Context, srRemoveReq) (replicateRemoveStatus, error)
+	SiteReplicationRemoveFromPeer(context.Context, peerSite, srRemoveReq) (replicateRemoveStatus, error)
 	SRMetaInfo(context.Context, srStatusOptions) (srInfo, error)
 	SRStatusInfo(context.Context, srStatusOptions) (srStatusInfo, error)
 }
@@ -124,6 +126,9 @@ func (c *rustfsClient) SiteReplicationAdd(ctx context.Context, sites []peerSite,
 	}
 
 	err = c.executeSiteReplicationRequest(ctx, http.MethodPut, "/add", siteReplicationAddQuery(opts), body, &result)
+	if err == nil && (!result.Success || result.ErrDetail != "" || result.InitialSyncErrorMessage != "") {
+		err = fmt.Errorf("site replication add incomplete: success=%t, status=%q, errorDetail=%q, initialSyncErrorMessage=%q", result.Success, result.Status, result.ErrDetail, result.InitialSyncErrorMessage)
+	}
 	return result, err
 }
 
@@ -135,6 +140,9 @@ func (c *rustfsClient) SiteReplicationEdit(ctx context.Context, site peerInfo, o
 	}
 
 	err = c.executeSiteReplicationRequest(ctx, http.MethodPut, "/edit", siteReplicationEditQuery(opts), body, &result)
+	if err == nil && (!result.Success || result.ErrDetail != "") {
+		err = fmt.Errorf("site replication edit incomplete: success=%t, status=%q, errorDetail=%q", result.Success, result.Status, result.ErrDetail)
+	}
 	return result, err
 }
 
@@ -152,6 +160,10 @@ func (c *rustfsClient) SiteReplicationRemove(ctx context.Context, removeReq srRe
 	}
 
 	err = c.executeSiteReplicationRequest(ctx, http.MethodPut, "/remove", siteReplicationBaseQuery(), body, &result)
+	// Unlike add/edit, RustFS remove has no success boolean.
+	if err == nil && (result.Status != "Requested site(s) were removed from cluster replication successfully." || result.ErrDetail != "") {
+		err = fmt.Errorf("site replication remove incomplete: status=%q, errorDetail=%q", result.Status, result.ErrDetail)
+	}
 	return result, err
 }
 
@@ -188,6 +200,22 @@ func (c *rustfsClient) SiteReplicationAddFromPeer(ctx context.Context, site peer
 	}
 
 	return peerClient.SiteReplicationAdd(ctx, sites, opts)
+}
+
+func (c *rustfsClient) SiteReplicationInfoFromPeer(ctx context.Context, site peerSite) (siteReplicationInfo, error) {
+	peerClient, err := c.peerClient(site)
+	if err != nil {
+		return siteReplicationInfo{}, err
+	}
+	return peerClient.SiteReplicationInfo(ctx)
+}
+
+func (c *rustfsClient) SiteReplicationRemoveFromPeer(ctx context.Context, site peerSite, removeReq srRemoveReq) (replicateRemoveStatus, error) {
+	peerClient, err := c.peerClient(site)
+	if err != nil {
+		return replicateRemoveStatus{}, err
+	}
+	return peerClient.SiteReplicationRemove(ctx, removeReq)
 }
 
 func (c *rustfsClient) SiteReplicationPeerCredentials() (string, string) {

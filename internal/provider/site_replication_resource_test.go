@@ -44,11 +44,22 @@ func (f *fakeSiteReplicationClient) SiteReplicationInfo(_ context.Context) (site
 	return f.info, nil
 }
 
+func (f *fakeSiteReplicationClient) SiteReplicationInfoFromPeer(context.Context, peerSite) (siteReplicationInfo, error) {
+	return siteReplicationInfo{}, nil
+}
+
 func (f *fakeSiteReplicationClient) SiteReplicationRemove(context.Context, srRemoveReq) (replicateRemoveStatus, error) {
 	return replicateRemoveStatus{}, nil
 }
 
+func (f *fakeSiteReplicationClient) SiteReplicationRemoveFromPeer(ctx context.Context, _ peerSite, req srRemoveReq) (replicateRemoveStatus, error) {
+	return f.SiteReplicationRemove(ctx, req)
+}
+
 func (f *fakeSiteReplicationClient) SRMetaInfo(context.Context, srStatusOptions) (srInfo, error) {
+	if f.metaInfo.DeploymentID == "" {
+		return srInfo{DeploymentID: "site-a-deployment"}, nil
+	}
 	return f.metaInfo, nil
 }
 
@@ -57,6 +68,9 @@ func (f *fakeSiteReplicationClient) SRStatusInfo(context.Context, srStatusOption
 }
 
 func (f *fakeSiteReplicationClient) PeerDeploymentID(_ context.Context, peer peerSite) (string, error) {
+	if f.peerDeploymentIDs == nil {
+		return peer.Name + "-deployment", nil
+	}
 	return f.peerDeploymentIDs[peer.Endpoint], nil
 }
 
@@ -165,8 +179,8 @@ func TestSiteReplicationDefaultsPeerCredentialsFromProvider(t *testing.T) {
 		t.Fatalf("expected configureReplication to succeed")
 	}
 
-	if len(client.addSites) != 1 {
-		t.Fatalf("expected one add site, got %d", len(client.addSites))
+	if len(client.addSites) != 2 {
+		t.Fatalf("expected two add sites, got %d", len(client.addSites))
 	}
 
 	if client.addSites[0].AccessKey != "provider-access" {
@@ -389,6 +403,12 @@ func testPeerListValueWithCredentials(t *testing.T, accessKey, secretKey types.S
 	t.Helper()
 
 	return testPeerListValueFromModels(t, []siteReplicationPeerConfigModel{
+		{
+			Name:      types.StringValue("site-a"),
+			Endpoint:  types.StringValue("https://site-a.example.com:9000"),
+			AccessKey: accessKey,
+			SecretKey: secretKey,
+		},
 		{
 			Name:      types.StringValue("site-b"),
 			Endpoint:  types.StringValue("https://site-b.example.com:9000"),
